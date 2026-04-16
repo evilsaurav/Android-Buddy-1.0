@@ -1,0 +1,11 @@
+node_modules
+.expo
+.git
+*.md
+.github
+azure-pipelines.yml
+.deployment
+deploy.sh
+.env
+.env.local
+*.log
