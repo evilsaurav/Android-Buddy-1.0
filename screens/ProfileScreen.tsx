@@ -130,6 +130,7 @@ export default function ProfileScreen({ navigation }: Props) {
       title: 'Support',
       items: [
         { icon: 'information-circle-outline', label: 'About BCABuddy', screen: 'About', color: '#1E1B4B' },
+        { icon: 'construct-outline', label: 'Phase-2 Tools', screen: 'ProductionTools', color: '#14B8A6' },
         { icon: 'star-outline', label: 'Rate Us', screen: 'RateUs', color: '#F59E0B' },
         { icon: 'help-circle-outline', label: 'Help & Support', screen: 'HelpSupport', color: COLORS.primary },
       ],

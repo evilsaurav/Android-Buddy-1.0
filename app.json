@@ -1,0 +1,10 @@
+{
+  "android": {
+    "package": "com.anonymous.placeholdermodel2"
+  },
+  "plugins": [
+    "expo-asset",
+    "expo-font",
+    "expo-secure-store"
+  ]
+}

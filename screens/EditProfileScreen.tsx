@@ -7,7 +7,12 @@ import * as ImagePicker from 'expo-image-picker';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 import { useAuth } from '../context/AuthContext';
-import { updateExamDateWithBackend, updateProfileWithBackend, uploadProfilePictureWithBackend } from '../lib/api';
+import {
+  changePasswordWithBackend,
+  updateExamDateWithBackend,
+  updateProfileWithBackend,
+  uploadProfilePictureWithBackend,
+} from '../lib/api';
 
 interface Props {
   navigation: any;
@@ -43,6 +48,8 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -165,6 +172,38 @@ export default function EditProfileScreen({ navigation }: Props) {
     </Animated.View>
   );
 
+  const updatePasswordField = (field: 'current' | 'next' | 'confirm', value: string) => {
+    setPasswords((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const changePassword = async () => {
+    if (sessionMode !== 'authenticated') {
+      Alert.alert('Login Required', 'Please login to change your password.');
+      return;
+    }
+
+    if (!passwords.current.trim() || !passwords.next.trim() || !passwords.confirm.trim()) {
+      Alert.alert('Incomplete', 'Please fill all password fields.');
+      return;
+    }
+
+    if (passwords.next !== passwords.confirm) {
+      Alert.alert('Mismatch', 'New password and confirm password do not match.');
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      await changePasswordWithBackend(passwords.current, passwords.next, passwords.confirm);
+      setPasswords({ current: '', next: '', confirm: '' });
+      Alert.alert('Password Updated', 'Your account password has been changed successfully.');
+    } catch {
+      Alert.alert('Update Failed', 'Unable to change password right now. Please try again.');
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
@@ -217,6 +256,62 @@ export default function EditProfileScreen({ navigation }: Props) {
             {renderField('Exam Date (YYYY-MM-DD)', 'examDate', 'calendar-outline', 'default', '2026-05-20')}
             {renderField('Section', 'section', 'people-outline', 'default', 'e.g. A, B, C')}
           </View>
+
+          {sessionMode === 'authenticated' ? (
+            <View style={styles.formCard}>
+              <Text style={styles.formSectionTitle}>Security</Text>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Current Password</Text>
+                <View style={styles.inputRow}>
+                  <Ionicons name="lock-closed-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={passwords.current}
+                    onChangeText={(value) => updatePasswordField('current', value)}
+                    placeholder="Current password"
+                    placeholderTextColor={COLORS.textMuted}
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>New Password</Text>
+                <View style={styles.inputRow}>
+                  <Ionicons name="key-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={passwords.next}
+                    onChangeText={(value) => updatePasswordField('next', value)}
+                    placeholder="New password"
+                    placeholderTextColor={COLORS.textMuted}
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Confirm New Password</Text>
+                <View style={styles.inputRow}>
+                  <Ionicons name="shield-checkmark-outline" size={20} color={COLORS.primary} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={passwords.confirm}
+                    onChangeText={(value) => updatePasswordField('confirm', value)}
+                    placeholder="Confirm password"
+                    placeholderTextColor={COLORS.textMuted}
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+
+              <TouchableOpacity style={styles.securityBtn} onPress={changePassword}>
+                <Ionicons name="shield-outline" size={16} color={COLORS.white} />
+                <Text style={styles.securityBtnText}>{changingPassword ? 'Updating...' : 'Change Password'}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           {/* Danger Zone */}
           <View style={styles.dangerCard}>
@@ -285,4 +380,16 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.md, borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   dangerBtnText: { ...FONTS.body, color: COLORS.danger },
+  securityBtn: {
+    marginTop: SPACING.sm,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+  },
+  securityBtnText: { ...FONTS.bodyBold, color: COLORS.white, fontSize: 13 },
 });

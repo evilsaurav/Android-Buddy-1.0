@@ -121,6 +121,7 @@ export interface DashboardStats {
 
 export interface LatestStudyRoadmap {
   has_roadmap?: boolean;
+  roadmap_id?: number;
   title?: string;
   subject?: string;
   semester?: number;
@@ -143,6 +144,24 @@ interface ProfileUpdatePayload {
   auto_save_history?: boolean;
   show_quick_suggestions?: boolean;
   privacy_mode?: boolean;
+}
+
+export interface SubjectiveGradingPayload {
+  question: string;
+  student_answer: string;
+  expected_answer?: string;
+  subject?: string;
+  semester?: number;
+}
+
+export interface RoadmapHistoryItem {
+  id?: number;
+  roadmap_id?: number;
+  title?: string;
+  subject?: string;
+  semester?: number;
+  accepted_at?: string;
+  created_at?: string;
 }
 
 export async function loginWithBackend(username: string, password: string): Promise<LoginResponse> {
@@ -361,6 +380,169 @@ export async function fetchLatestStudyRoadmapWithBackend(): Promise<LatestStudyR
   }
 
   return (await res.json()) as LatestStudyRoadmap;
+}
+
+export async function acceptStudyRoadmapWithBackend(roadmapId?: number): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const query = typeof roadmapId === 'number' ? `?roadmap_id=${roadmapId}` : '';
+  const res = await fetch(buildApiUrl(`/study-roadmap/accept${query}`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'ROADMAP_ACCEPT_FAILED', 'Study roadmap accept failed');
+  }
+
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function fetchStudyRoadmapHistoryWithBackend(): Promise<RoadmapHistoryItem[]> {
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl('/study-roadmap/history'), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'ROADMAP_HISTORY_FAILED', 'Study roadmap history fetch failed');
+  }
+
+  const rows = (await res.json()) as Array<Record<string, unknown>>;
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows.map((row) => ({
+    id: typeof row.id === 'number' ? row.id : undefined,
+    roadmap_id: typeof row.roadmap_id === 'number' ? row.roadmap_id : undefined,
+    title: typeof row.title === 'string' ? row.title : undefined,
+    subject: typeof row.subject === 'string' ? row.subject : undefined,
+    semester: typeof row.semester === 'number' ? row.semester : undefined,
+    accepted_at: typeof row.accepted_at === 'string' ? row.accepted_at : undefined,
+    created_at: typeof row.created_at === 'string' ? row.created_at : undefined,
+  }));
+}
+
+export async function gradeSubjectiveWithBackend(payload: SubjectiveGradingPayload): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl('/grade-subjective'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'SUBJECTIVE_GRADING_FAILED', 'Subjective grading failed');
+  }
+
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function changePasswordWithBackend(
+  currentPassword: string,
+  newPassword: string,
+  confirmPassword: string
+): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl('/profile/change-password'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+      confirm_password: confirmPassword,
+    }),
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'CHANGE_PASSWORD_FAILED', 'Password change failed');
+  }
+
+  return (await res.json()) as Record<string, unknown>;
+}
+
+async function uploadFileWithBackend(path: string, fileUri: string): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const formData = new FormData();
+  const fileName = fileUri.split('/').pop() || `upload-${Date.now()}.jpg`;
+  const lower = fileName.toLowerCase();
+  const contentType =
+    lower.endsWith('.pdf')
+      ? 'application/pdf'
+      : lower.endsWith('.png')
+        ? 'image/png'
+        : 'image/jpeg';
+
+  formData.append('file', {
+    uri: fileUri,
+    name: fileName,
+    type: contentType,
+  } as unknown as Blob);
+
+  const res = await fetch(buildApiUrl(path), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'FILE_UPLOAD_FAILED', `Upload failed for ${path}`);
+  }
+
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function uploadNotesOcrWithBackend(fileUri: string): Promise<Record<string, unknown>> {
+  return uploadFileWithBackend('/upload-notes-ocr', fileUri);
+}
+
+export async function solveAssignmentWithBackend(fileUri: string): Promise<Record<string, unknown>> {
+  return uploadFileWithBackend('/solve-assignment', fileUri);
+}
+
+export async function uploadGenericFileWithBackend(fileUri: string): Promise<Record<string, unknown>> {
+  return uploadFileWithBackend('/upload', fileUri);
+}
+
+export async function callApcEndpointWithBackend(
+  action: string,
+  payload: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const cleaned = action.trim().replace(/^\/+/, '');
+  if (!cleaned) {
+    throw new ApiError('APC action is required.', 'APC_ACTION_MISSING');
+  }
+
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl(`/apc/${cleaned}`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'APC_CALL_FAILED', `APC call failed for ${cleaned}`);
+  }
+
+  return (await res.json()) as Record<string, unknown>;
 }
 
 interface ChatRequestBody {

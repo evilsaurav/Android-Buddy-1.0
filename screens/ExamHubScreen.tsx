@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 import { SUBJECTS, CALENDAR_EVENTS } from '../lib/data';
 import { useAuth } from '../context/AuthContext';
-import { GeneratedQuestion, generateExamWithBackend, generateQuizWithBackend, resolveBackendSubjectCode } from '../lib/api';
+import {
+  GeneratedQuestion,
+  generateExamWithBackend,
+  generateQuizWithBackend,
+  gradeSubjectiveWithBackend,
+  resolveBackendSubjectCode,
+} from '../lib/api';
 
 interface Props {
   navigation: any;
@@ -21,6 +27,10 @@ export default function ExamHubScreen({ navigation }: Props) {
   const [loadingTool, setLoadingTool] = useState<'quiz' | 'exam' | null>(null);
   const [generatedItems, setGeneratedItems] = useState<GeneratedQuestion[]>([]);
   const [generatedTitle, setGeneratedTitle] = useState('');
+  const [grading, setGrading] = useState(false);
+  const [subjectiveQuestion, setSubjectiveQuestion] = useState('Explain process scheduling and write two real-world examples.');
+  const [subjectiveAnswer, setSubjectiveAnswer] = useState('Process scheduling is used by OS to decide which process runs first based on policies like FCFS, SJF, and Round Robin. It helps CPU utilization and fairness. Examples include multitasking in mobile apps and server request handling.');
+  const [gradingResult, setGradingResult] = useState('');
   const today = new Date();
   const currentMonth = today.getMonth();
   const currentYear = today.getFullYear();
@@ -83,6 +93,33 @@ export default function ExamHubScreen({ navigation }: Props) {
       setGeneratedItems([]);
     } finally {
       setLoadingTool(null);
+    }
+  };
+
+  const runSubjectiveGrading = async () => {
+    if (sessionMode !== 'authenticated') {
+      setGradingResult('Login required for subjective grading.');
+      return;
+    }
+
+    if (!subjectiveQuestion.trim() || !subjectiveAnswer.trim()) {
+      setGradingResult('Please enter both question and answer before grading.');
+      return;
+    }
+
+    try {
+      setGrading(true);
+      const result = await gradeSubjectiveWithBackend({
+        question: subjectiveQuestion.trim(),
+        student_answer: subjectiveAnswer.trim(),
+        subject: backendSubjectCode,
+        semester: primarySubject?.semester,
+      });
+      setGradingResult(JSON.stringify(result, null, 2));
+    } catch {
+      setGradingResult('Unable to grade answer right now. Please try again.');
+    } finally {
+      setGrading(false);
     }
   };
 
@@ -272,6 +309,40 @@ export default function ExamHubScreen({ navigation }: Props) {
           </Animated.View>
         ) : null}
 
+        <Animated.View entering={FadeInDown.delay(500).duration(400)} style={styles.section}>
+          <Text style={styles.sectionTitle}>🧠 Subjective Grader</Text>
+          <View style={styles.generatedCard}>
+            <Text style={styles.graderSub}>Submit one descriptive answer to check quality with backend grading.</Text>
+            <TextInput
+              style={styles.graderInput}
+              value={subjectiveQuestion}
+              onChangeText={setSubjectiveQuestion}
+              placeholder="Subjective question"
+              placeholderTextColor={COLORS.textMuted}
+              multiline
+            />
+            <TextInput
+              style={[styles.graderInput, styles.answerInput]}
+              value={subjectiveAnswer}
+              onChangeText={setSubjectiveAnswer}
+              placeholder="Your answer"
+              placeholderTextColor={COLORS.textMuted}
+              multiline
+              textAlignVertical="top"
+            />
+            <TouchableOpacity style={styles.gradeBtn} onPress={runSubjectiveGrading}>
+              <Ionicons name="sparkles-outline" size={16} color={COLORS.white} />
+              <Text style={styles.gradeBtnText}>{grading ? 'Grading...' : 'Grade Subjective Answer'}</Text>
+            </TouchableOpacity>
+
+            {gradingResult ? (
+              <View style={styles.gradeResultBox}>
+                <Text style={styles.gradeResultText}>{gradingResult}</Text>
+              </View>
+            ) : null}
+          </View>
+        </Animated.View>
+
         <View style={{ height: 120 }} />
       </ScrollView>
     </SafeAreaView>
@@ -359,4 +430,38 @@ const styles = StyleSheet.create({
   },
   generatedQ: { ...FONTS.body, fontSize: 13 },
   generatedMeta: { ...FONTS.small, color: COLORS.textSecondary, marginTop: 3 },
+  graderSub: { ...FONTS.small, color: COLORS.textSecondary, marginBottom: SPACING.md },
+  graderInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.background,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    ...FONTS.body,
+    color: COLORS.text,
+    marginBottom: SPACING.sm,
+  },
+  answerInput: { minHeight: 100 },
+  gradeBtn: {
+    marginTop: SPACING.xs,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  gradeBtnText: { ...FONTS.small, color: COLORS.white, fontWeight: '700' },
+  gradeResultBox: {
+    marginTop: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.background,
+    padding: SPACING.md,
+  },
+  gradeResultText: { ...FONTS.small, color: COLORS.text, fontFamily: 'monospace' },
 });

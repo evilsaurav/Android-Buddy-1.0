@@ -10,6 +10,7 @@ interface Props {
 }
 
 const FAQS = [
+            { icon: 'construct', label: 'Prod Tools', color: '#14B8A6', onPress: () => navigation.navigate('ProductionTools') },
   { q: 'How does the AI study planner work?', a: 'BCABuddy AI analyzes your current progress, upcoming exams, and study patterns to generate personalized daily study plans. It prioritizes topics based on difficulty, weightage, and your completion rate.' },
   { q: 'Is my data stored online?', a: 'No! All your study data is stored locally on your device using AsyncStorage. We prioritize your privacy. Cloud sync is optional and uses encryption.' },
   { q: 'How do I clear a backlog subject?', a: 'Go to the Backlog Planner tab to see your AI-generated recovery plan. It breaks down the subject into weekly goals with estimated daily study hours.' },

@@ -29,6 +29,7 @@ import PrivacyScreen from './screens/PrivacyScreen';
 import HelpSupportScreen from './screens/HelpSupportScreen';
 import RateUsScreen from './screens/RateUsScreen';
 import AuthScreen from './screens/AuthScreen';
+import ProductionToolsScreen from './screens/ProductionToolsScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 import { COLORS, SHADOWS } from './lib/theme';
@@ -170,6 +171,7 @@ function AppNavigator() {
           <Stack.Screen name="OfflineData" component={OfflineDataScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Privacy" component={PrivacyScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="HelpSupport" component={HelpSupportScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ProductionTools" component={ProductionToolsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="RateUs" component={RateUsScreen} options={{ animation: 'slide_from_right' }} />
         </Stack.Navigator>
       </NavigationContainer>

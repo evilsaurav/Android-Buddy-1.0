@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 import { SUBJECTS, SEMESTERS, Subject } from '../lib/data';
 import { useAuth } from '../context/AuthContext';
-import { fetchLatestStudyRoadmapWithBackend, LatestStudyRoadmap } from '../lib/api';
+import {
+  acceptStudyRoadmapWithBackend,
+  fetchLatestStudyRoadmapWithBackend,
+  fetchStudyRoadmapHistoryWithBackend,
+  LatestStudyRoadmap,
+  RoadmapHistoryItem,
+} from '../lib/api';
 
 interface Props {
   navigation: any;
@@ -16,6 +22,8 @@ export default function RoadmapScreen({ navigation }: Props) {
   const { sessionMode } = useAuth();
   const [selectedSemester, setSelectedSemester] = useState(3);
   const [latestRoadmap, setLatestRoadmap] = useState<LatestStudyRoadmap | null>(null);
+  const [roadmapHistory, setRoadmapHistory] = useState<RoadmapHistoryItem[]>([]);
+  const [acceptingRoadmap, setAcceptingRoadmap] = useState(false);
 
   const filteredSubjects = SUBJECTS.filter((s) => s.semester === selectedSemester);
   const allSubjects = selectedSemester === 0 ? SUBJECTS : filteredSubjects;
@@ -28,23 +36,47 @@ export default function RoadmapScreen({ navigation }: Props) {
     const loadLatestRoadmap = async () => {
       if (sessionMode !== 'authenticated') {
         setLatestRoadmap(null);
+        setRoadmapHistory([]);
         return;
       }
 
       try {
-        const data = await fetchLatestStudyRoadmapWithBackend();
+        const [data, history] = await Promise.all([
+          fetchLatestStudyRoadmapWithBackend(),
+          fetchStudyRoadmapHistoryWithBackend(),
+        ]);
         if (data?.has_roadmap) {
           setLatestRoadmap(data);
         } else {
           setLatestRoadmap(null);
         }
+        setRoadmapHistory(history.slice(0, 4));
       } catch {
         setLatestRoadmap(null);
+        setRoadmapHistory([]);
       }
     };
 
     loadLatestRoadmap();
   }, [sessionMode]);
+
+  const acceptLatestRoadmap = async () => {
+    if (!latestRoadmap) return;
+
+    try {
+      setAcceptingRoadmap(true);
+      await acceptStudyRoadmapWithBackend(
+        typeof latestRoadmap.roadmap_id === 'number' ? latestRoadmap.roadmap_id : undefined
+      );
+      const history = await fetchStudyRoadmapHistoryWithBackend();
+      setRoadmapHistory(history.slice(0, 4));
+      Alert.alert('Roadmap Accepted', 'This plan is now saved in your roadmap history.');
+    } catch {
+      Alert.alert('Unable to accept', 'Could not accept roadmap right now. Please try again.');
+    } finally {
+      setAcceptingRoadmap(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -97,6 +129,25 @@ export default function RoadmapScreen({ navigation }: Props) {
           <Text style={styles.liveRoadmapMeta}>
             {Math.round(Number(latestRoadmap.completion_pct || 0))}% complete • {Number(latestRoadmap.completed_days || 0)}/{Number(latestRoadmap.total_days || 0)} days
           </Text>
+          <TouchableOpacity style={styles.acceptBtn} onPress={acceptLatestRoadmap}>
+            <Ionicons name="checkmark-circle-outline" size={15} color={COLORS.white} />
+            <Text style={styles.acceptBtnText}>{acceptingRoadmap ? 'Accepting...' : 'Accept Roadmap'}</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      ) : null}
+
+      {roadmapHistory.length > 0 ? (
+        <Animated.View entering={FadeInDown.delay(145).duration(400)} style={styles.historyCard}>
+          <View style={styles.historyHeader}>
+            <Ionicons name="time-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.historyTitle}>Recent Accepted Roadmaps</Text>
+          </View>
+          {roadmapHistory.map((item, idx) => (
+            <View key={`${item.id || idx}-${item.title || 'roadmap'}`} style={styles.historyRow}>
+              <Text style={styles.historyName}>{String(item.title || item.subject || 'Study Roadmap')}</Text>
+              <Text style={styles.historyMeta}>Sem {String(item.semester || '-')}</Text>
+            </View>
+          ))}
         </Animated.View>
       ) : null}
 
@@ -205,6 +256,38 @@ const styles = StyleSheet.create({
   liveRoadmapLabel: { ...FONTS.small, color: COLORS.secondary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
   liveRoadmapTitle: { ...FONTS.bodyBold, color: COLORS.text, marginBottom: 2 },
   liveRoadmapMeta: { ...FONTS.small, color: COLORS.textSecondary },
+  acceptBtn: {
+    marginTop: SPACING.md,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+  },
+  acceptBtnText: { ...FONTS.small, color: COLORS.white, fontWeight: '700' },
+  historyCard: {
+    marginHorizontal: SPACING.xl,
+    marginTop: SPACING.md,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    ...SHADOWS.sm,
+  },
+  historyHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, marginBottom: SPACING.sm },
+  historyTitle: { ...FONTS.bodyBold, color: COLORS.primary },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: SPACING.xs,
+    borderBottomWidth: 0.5,
+    borderBottomColor: COLORS.border,
+  },
+  historyName: { ...FONTS.small, color: COLORS.text },
+  historyMeta: { ...FONTS.small, color: COLORS.textSecondary },
   listContent: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
   roadmapCard: { flexDirection: 'row', marginBottom: SPACING.md },
   timeline: { alignItems: 'center', marginRight: SPACING.lg, width: 28 },
