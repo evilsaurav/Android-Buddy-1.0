@@ -41,10 +41,7 @@ export function setAuthFailureHandler(handler: AuthFailureHandler | null): void 
 }
 
 export function getBackendBaseUrl(): string {
-  const raw =
-    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-      ?.EXPO_PUBLIC_API_BASE_URL || DEFAULT_BACKEND_BASE_URL;
-  return String(raw).trim().replace(/\/+$/, '');
+  return DEFAULT_BACKEND_BASE_URL;
 }
 
 export function buildApiUrl(path: string): string {

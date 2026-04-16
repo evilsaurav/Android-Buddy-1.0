@@ -1,10 +1,19 @@
 {
-  "android": {
-    "package": "com.anonymous.placeholdermodel2"
-  },
-  "plugins": [
-    "expo-asset",
-    "expo-font",
-    "expo-secure-store"
-  ]
+  "expo": {
+    "name": "bcabuudy",
+    "slug": "bcabuudy",
+    "icon": "./assets/bcabuudy-icon.png",
+    "android": {
+      "package": "com.anonymous.placeholdermodel2",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/bcabuudy-icon.png",
+        "backgroundColor": "#14213D"
+      }
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font",
+      "expo-secure-store"
+    ]
+  }
 }
