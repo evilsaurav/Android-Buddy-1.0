@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -7,6 +7,8 @@ import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 import { SUBJECTS, CALENDAR_EVENTS } from '../lib/data';
 import { useAuth } from '../context/AuthContext';
 import {
+  explainMcqWithBackend,
+  explainQuestionWithBackend,
   GeneratedQuestion,
   generateExamWithBackend,
   generateQuizWithBackend,
@@ -28,9 +30,19 @@ export default function ExamHubScreen({ navigation }: Props) {
   const [generatedItems, setGeneratedItems] = useState<GeneratedQuestion[]>([]);
   const [generatedTitle, setGeneratedTitle] = useState('');
   const [grading, setGrading] = useState(false);
+  const [explainingIndex, setExplainingIndex] = useState<number | null>(null);
+  const [explanationText, setExplanationText] = useState('');
   const [subjectiveQuestion, setSubjectiveQuestion] = useState('Explain process scheduling and write two real-world examples.');
   const [subjectiveAnswer, setSubjectiveAnswer] = useState('Process scheduling is used by OS to decide which process runs first based on policies like FCFS, SJF, and Round Robin. It helps CPU utilization and fairness. Examples include multitasking in mobile apps and server request handling.');
   const [gradingResult, setGradingResult] = useState('');
+  const [examModeVisible, setExamModeVisible] = useState(false);
+  const [examQuestions, setExamQuestions] = useState<GeneratedQuestion[]>([]);
+  const [examIndex, setExamIndex] = useState(0);
+  const [examAnswers, setExamAnswers] = useState<Record<number, string>>({});
+  const [examTimeLeft, setExamTimeLeft] = useState(30 * 60);
+  const [examSubmitted, setExamSubmitted] = useState(false);
+  const [examScore, setExamScore] = useState(0);
+  const [examSummary, setExamSummary] = useState('');
   const today = new Date();
   const currentMonth = today.getMonth();
   const currentYear = today.getFullYear();
@@ -55,6 +67,20 @@ export default function ExamHubScreen({ navigation }: Props) {
 
   const primarySubject = examSubjects[0] || SUBJECTS[0];
   const backendSubjectCode = resolveBackendSubjectCode(primarySubject?.name || '', primarySubject?.semester);
+
+  useEffect(() => {
+    if (!examModeVisible || examSubmitted) return;
+    if (examTimeLeft <= 0) {
+      submitExamMode();
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setExamTimeLeft((prev) => prev - 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [examModeVisible, examSubmitted, examTimeLeft]);
 
   const createQuiz = async () => {
     if (sessionMode !== 'authenticated') {
@@ -96,6 +122,83 @@ export default function ExamHubScreen({ navigation }: Props) {
     }
   };
 
+  const startExamMode = async () => {
+    if (sessionMode !== 'authenticated') {
+      setGeneratedTitle('Login required for exam mode');
+      return;
+    }
+
+    try {
+      setLoadingTool('exam');
+      setExamSubmitted(false);
+      setExamScore(0);
+      setExamSummary('');
+      setExamAnswers({});
+      setExamIndex(0);
+
+      let items = await generateExamWithBackend(primarySubject.name, primarySubject.semester, 20, 0);
+      let mcqOnly = items.filter((q) => Array.isArray(q.options) && q.options.length >= 2);
+
+      if (mcqOnly.length < 10) {
+        items = await generateQuizWithBackend(primarySubject.name, primarySubject.semester, 20);
+        mcqOnly = items.filter((q) => Array.isArray(q.options) && q.options.length >= 2);
+      }
+
+      if (!mcqOnly.length) {
+        setGeneratedTitle('Could not start exam mode right now. Try again.');
+        return;
+      }
+
+      setExamQuestions(mcqOnly.slice(0, 20));
+      setExamTimeLeft(30 * 60);
+      setExamModeVisible(true);
+    } catch {
+      setGeneratedTitle('Unable to load exam mode right now');
+    } finally {
+      setLoadingTool(null);
+    }
+  };
+
+  const selectExamOption = (option: string) => {
+    if (examSubmitted) return;
+    setExamAnswers((prev) => ({ ...prev, [examIndex]: option }));
+  };
+
+  const formatClock = (seconds: number) => {
+    const safe = Math.max(0, seconds);
+    const mm = String(Math.floor(safe / 60)).padStart(2, '0');
+    const ss = String(safe % 60).padStart(2, '0');
+    return `${mm}:${ss}`;
+  };
+
+  const submitExamMode = () => {
+    if (!examQuestions.length) return;
+
+    let correct = 0;
+    let attempted = 0;
+    examQuestions.forEach((q, idx) => {
+      const picked = String(examAnswers[idx] || '').trim().toLowerCase();
+      const expected = String(q.correct_answer || '').trim().toLowerCase();
+      if (!picked) return;
+      attempted += 1;
+      if (picked === expected) correct += 1;
+    });
+
+    const scorePct = Math.round((correct / examQuestions.length) * 100);
+    setExamScore(scorePct);
+    setExamSubmitted(true);
+    setExamSummary(`Attempted ${attempted}/${examQuestions.length} • Correct ${correct}/${examQuestions.length}`);
+  };
+
+  const closeExamMode = () => {
+    setExamModeVisible(false);
+    setExamQuestions([]);
+    setExamAnswers({});
+    setExamIndex(0);
+    setExamSubmitted(false);
+    setExamSummary('');
+  };
+
   const runSubjectiveGrading = async () => {
     if (sessionMode !== 'authenticated') {
       setGradingResult('Login required for subjective grading.');
@@ -111,15 +214,53 @@ export default function ExamHubScreen({ navigation }: Props) {
       setGrading(true);
       const result = await gradeSubjectiveWithBackend({
         question: subjectiveQuestion.trim(),
-        student_answer: subjectiveAnswer.trim(),
+        answer: subjectiveAnswer.trim(),
         subject: backendSubjectCode,
-        semester: primarySubject?.semester,
+        semester: primarySubject?.semester || 1,
+        max_marks: 10,
       });
       setGradingResult(JSON.stringify(result, null, 2));
     } catch {
       setGradingResult('Unable to grade answer right now. Please try again.');
     } finally {
       setGrading(false);
+    }
+  };
+
+  const explainGeneratedQuestion = async (item: GeneratedQuestion, idx: number) => {
+    if (sessionMode !== 'authenticated') {
+      setExplanationText('Login required to explain generated questions.');
+      return;
+    }
+
+    try {
+      setExplainingIndex(idx);
+      let response: Record<string, unknown>;
+      if (Array.isArray(item.options) && item.options.length > 0) {
+        response = await explainMcqWithBackend({
+          question: item.question,
+          options: item.options,
+          correct_answer: item.correct_answer || item.options[0],
+          subject: backendSubjectCode,
+          semester: primarySubject?.semester,
+        });
+      } else {
+        response = await explainQuestionWithBackend({
+          action: 'subjective_review',
+          question_text: item.question,
+          correct_answer: item.correct_answer || 'No model answer available.',
+          user_answer: '',
+        });
+      }
+
+      const text =
+        String(response.explanation || response.answer || response.message || '').trim() ||
+        'No explanation returned.';
+      setExplanationText(text);
+    } catch {
+      setExplanationText('Unable to fetch explanation right now.');
+    } finally {
+      setExplainingIndex(null);
     }
   };
 
@@ -274,10 +415,10 @@ export default function ExamHubScreen({ navigation }: Props) {
             {[
               { icon: 'document-text', label: 'Generate Quiz', color: '#4A6CF7', desc: loadingTool === 'quiz' ? 'Generating...' : '10 MCQs', action: createQuiz },
               { icon: 'help-circle', label: 'Generate Exam', color: '#06B6D4', desc: loadingTool === 'exam' ? 'Generating...' : '8 MCQ + 2 subjective', action: createMixedExam },
-              { icon: 'help-circle', label: 'Mock Tests', color: '#06B6D4', desc: 'Practice exams' },
+              { icon: 'timer-outline', label: 'Exam Mode', color: '#16A34A', desc: loadingTool === 'exam' ? 'Preparing...' : '30 min timed test', action: startExamMode },
               { icon: 'bookmark', label: 'Formulas', color: '#F59E0B', desc: 'Quick reference' },
             ].map((tool, i) => (
-              <TouchableOpacity key={i} style={styles.toolCard} activeOpacity={0.7} onPress={tool.action}>
+              <TouchableOpacity key={i} style={styles.toolCard} activeOpacity={0.7} onPress={() => tool.action?.()}>
                 <View style={[styles.toolIcon, { backgroundColor: tool.color + '15' }]}>
                   <Ionicons name={tool.icon as any} size={26} color={tool.color} />
                 </View>
@@ -302,9 +443,14 @@ export default function ExamHubScreen({ navigation }: Props) {
                     {item.options && item.options.length > 0 ? (
                       <Text style={styles.generatedMeta}>Options: {item.options.join(' | ')}</Text>
                     ) : null}
+                    <TouchableOpacity style={styles.explainBtn} onPress={() => explainGeneratedQuestion(item, idx)}>
+                      <Ionicons name="help-circle-outline" size={14} color={COLORS.primary} />
+                      <Text style={styles.explainBtnText}>{explainingIndex === idx ? 'Explaining...' : 'Explain'}</Text>
+                    </TouchableOpacity>
                   </View>
                 ))
               )}
+              {explanationText ? <Text style={styles.explanationText}>{explanationText}</Text> : null}
             </View>
           </Animated.View>
         ) : null}
@@ -345,6 +491,82 @@ export default function ExamHubScreen({ navigation }: Props) {
 
         <View style={{ height: 120 }} />
       </ScrollView>
+
+      <Modal visible={examModeVisible} animationType="slide" onRequestClose={closeExamMode}>
+        <SafeAreaView style={styles.examModeContainer} edges={['top', 'bottom']}>
+          <View style={styles.examModeHeader}>
+            <TouchableOpacity onPress={closeExamMode} style={styles.examHeaderBtn}>
+              <Ionicons name="close" size={22} color={COLORS.text} />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.examModeTitle}>Exam Mode • {backendSubjectCode}</Text>
+              <Text style={styles.examModeSub}>Question {Math.min(examIndex + 1, Math.max(examQuestions.length, 1))}/{Math.max(examQuestions.length, 1)}</Text>
+            </View>
+            <View style={[styles.timerBadge, examTimeLeft < 300 && styles.timerBadgeWarn]}>
+              <Ionicons name="time-outline" size={14} color={examTimeLeft < 300 ? COLORS.danger : COLORS.primary} />
+              <Text style={[styles.timerText, examTimeLeft < 300 && { color: COLORS.danger }]}>{formatClock(examTimeLeft)}</Text>
+            </View>
+          </View>
+
+          {examQuestions.length > 0 ? (
+            <View style={styles.examModeBody}>
+              <ScrollView style={styles.examQuestionCard} contentContainerStyle={{ paddingBottom: SPACING.md }}>
+                <Text style={styles.examQuestionText}>{examQuestions[examIndex]?.question || 'No question available'}</Text>
+                {(examQuestions[examIndex]?.options || []).map((opt, idx) => {
+                  const chosen = examAnswers[examIndex] === opt;
+                  return (
+                    <TouchableOpacity
+                      key={`${examIndex}-opt-${idx}`}
+                      style={[styles.examOption, chosen && styles.examOptionSelected]}
+                      onPress={() => selectExamOption(opt)}
+                      disabled={examSubmitted}
+                    >
+                      <Text style={[styles.examOptionText, chosen && styles.examOptionTextSelected]}>{String.fromCharCode(65 + idx)}. {opt}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {examSubmitted ? (
+                <View style={styles.examResultBox}>
+                  <Text style={styles.examResultTitle}>Result: {examScore}%</Text>
+                  <Text style={styles.examResultText}>{examSummary}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.examActionsRow}>
+                <TouchableOpacity
+                  style={styles.examActionBtn}
+                  onPress={() => setExamIndex((prev) => Math.max(0, prev - 1))}
+                  disabled={examIndex === 0 || examSubmitted}
+                >
+                  <Text style={styles.examActionText}>Prev</Text>
+                </TouchableOpacity>
+                {examSubmitted ? (
+                  <TouchableOpacity style={[styles.examActionBtn, styles.examSubmitBtn]} onPress={closeExamMode}>
+                    <Text style={[styles.examActionText, styles.examSubmitText]}>Finish</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={[styles.examActionBtn, styles.examSubmitBtn]} onPress={submitExamMode}>
+                    <Text style={[styles.examActionText, styles.examSubmitText]}>Submit</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.examActionBtn}
+                  onPress={() => setExamIndex((prev) => Math.min(examQuestions.length - 1, prev + 1))}
+                  disabled={examIndex >= examQuestions.length - 1 || examSubmitted}
+                >
+                  <Text style={styles.examActionText}>Next</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.examEmptyBox}>
+              <Text style={styles.examEmptyText}>Preparing exam questions...</Text>
+            </View>
+          )}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -430,6 +652,20 @@ const styles = StyleSheet.create({
   },
   generatedQ: { ...FONTS.body, fontSize: 13 },
   generatedMeta: { ...FONTS.small, color: COLORS.textSecondary, marginTop: 3 },
+  explainBtn: {
+    marginTop: SPACING.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    alignSelf: 'flex-start',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '35',
+  },
+  explainBtnText: { ...FONTS.small, color: COLORS.primary, fontWeight: '700' },
+  explanationText: { ...FONTS.small, color: COLORS.text, marginTop: SPACING.sm, lineHeight: 18 },
   graderSub: { ...FONTS.small, color: COLORS.textSecondary, marginBottom: SPACING.md },
   graderInput: {
     borderWidth: 1,
@@ -464,4 +700,98 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
   },
   gradeResultText: { ...FONTS.small, color: COLORS.text, fontFamily: 'monospace' },
+  examModeContainer: { flex: 1, backgroundColor: COLORS.background },
+  examModeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+  examHeaderBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.background,
+  },
+  examModeTitle: { ...FONTS.bodyBold, color: COLORS.text },
+  examModeSub: { ...FONTS.small, color: COLORS.textSecondary, marginTop: 2 },
+  timerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '30',
+    backgroundColor: COLORS.primary + '10',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 5,
+  },
+  timerBadgeWarn: {
+    borderColor: COLORS.danger + '35',
+    backgroundColor: COLORS.dangerLight,
+  },
+  timerText: { ...FONTS.small, color: COLORS.primary, fontWeight: '700' },
+  examModeBody: { flex: 1, padding: SPACING.lg },
+  examQuestionCard: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    ...SHADOWS.sm,
+  },
+  examQuestionText: { ...FONTS.bodyBold, color: COLORS.text, lineHeight: 22, marginBottom: SPACING.md },
+  examOption: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    marginBottom: SPACING.sm,
+    backgroundColor: COLORS.background,
+  },
+  examOptionSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary + '12',
+  },
+  examOptionText: { ...FONTS.body, color: COLORS.textSecondary },
+  examOptionTextSelected: { color: COLORS.primary, fontWeight: '700' },
+  examActionsRow: {
+    marginTop: SPACING.md,
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  examActionBtn: {
+    flex: 1,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.sm,
+  },
+  examSubmitBtn: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+  },
+  examActionText: { ...FONTS.bodyBold, color: COLORS.textSecondary, fontSize: 13 },
+  examSubmitText: { color: COLORS.white },
+  examResultBox: {
+    marginTop: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.success + '35',
+    backgroundColor: COLORS.successLight,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+  },
+  examResultTitle: { ...FONTS.bodyBold, color: COLORS.success },
+  examResultText: { ...FONTS.small, color: COLORS.textSecondary, marginTop: 2 },
+  examEmptyBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  examEmptyText: { ...FONTS.body, color: COLORS.textSecondary },
 });

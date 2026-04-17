@@ -57,11 +57,13 @@ export default function EditProfileScreen({ navigation }: Props) {
 
   const loadProfile = async () => {
     if (sessionMode === 'authenticated' && authProfile) {
+      const examSessionRaw = String(authProfile.exam_session || '').trim();
+      const sessionSemMatch = examSessionRaw.match(/sem\s*(\d+)/i);
       setProfile((prev) => ({
         ...prev,
         name: String(authProfile.display_name || authProfile.username || prev.name),
         email: String(authProfile.email || prev.email),
-        semester: String(authProfile.semester || prev.semester),
+        semester: sessionSemMatch?.[1] || String(authProfile.semester || prev.semester),
         phone: String(authProfile.mobile_number || prev.phone),
         examDate: String(authProfile.exam_date || prev.examDate),
         avatarUri: String(authProfile.profile_picture_url || prev.avatarUri),
@@ -87,10 +89,14 @@ export default function EditProfileScreen({ navigation }: Props) {
           display_name: profile.name,
           mobile_number: profile.phone,
           email: profile.email,
+          exam_session: `Sem ${String(profile.semester || '').trim() || '3'}`,
         });
 
         if (profile.examDate.trim()) {
-          await updateExamDateWithBackend(profile.examDate.trim());
+          await updateExamDateWithBackend(
+            profile.examDate.trim(),
+            `Sem ${String(profile.semester || '').trim() || '3'}`
+          );
         }
 
         await refreshProfile();

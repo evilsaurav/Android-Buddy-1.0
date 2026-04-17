@@ -65,9 +65,36 @@ export default function RoadmapScreen({ navigation }: Props) {
 
     try {
       setAcceptingRoadmap(true);
-      await acceptStudyRoadmapWithBackend(
-        typeof latestRoadmap.roadmap_id === 'number' ? latestRoadmap.roadmap_id : undefined
-      );
+      const semesterLabel =
+        typeof latestRoadmap.semester === 'number'
+          ? `Sem ${latestRoadmap.semester}`
+          : String(latestRoadmap.semester || '').trim();
+      const fallbackText = Array.isArray(latestRoadmap.days)
+        ? latestRoadmap.days
+            .slice(0, 30)
+            .map((day, idx) => {
+              const focus = String(day.focus_subject || day.subject || latestRoadmap.subject || '').trim();
+              const topics = Array.isArray(day.topics_to_cover)
+                ? day.topics_to_cover.map((x) => String(x)).filter(Boolean).join(', ')
+                : String(day.topic || '').trim();
+              return `Day ${idx + 1}: ${focus}${topics ? ` -> ${topics}` : ''}`.trim();
+            })
+            .filter(Boolean)
+            .join('\n')
+        : '';
+
+      const roadmapText = String(latestRoadmap.raw_text || fallbackText).trim();
+      if (!roadmapText) {
+        Alert.alert('Roadmap unavailable', 'Roadmap content is missing. Generate a fresh roadmap and try again.');
+        return;
+      }
+
+      await acceptStudyRoadmapWithBackend({
+        subject: String(latestRoadmap.subject || '').trim(),
+        semester: semesterLabel,
+        duration_days: Number(latestRoadmap.duration_days || latestRoadmap.total_days || 15),
+        roadmap_text: roadmapText,
+      });
       const history = await fetchStudyRoadmapHistoryWithBackend();
       setRoadmapHistory(history.slice(0, 4));
       Alert.alert('Roadmap Accepted', 'This plan is now saved in your roadmap history.');

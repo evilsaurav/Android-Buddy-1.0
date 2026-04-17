@@ -26,6 +26,8 @@ interface Preferences {
   breakDuration: number;
   privacyMode: boolean;
   responseMode: ResponseMode;
+  frenzyModeOverride: boolean;
+  semesterPreference: string;
 }
 
 const STORAGE_KEY = '@bcabuddy_preferences';
@@ -46,6 +48,8 @@ export default function PreferencesScreen({ navigation }: Props) {
     breakDuration: 10,
     privacyMode: false,
     responseMode: 'thinking',
+    frenzyModeOverride: false,
+    semesterPreference: 'Sem 3',
   });
 
   useEffect(() => {
@@ -66,6 +70,10 @@ export default function PreferencesScreen({ navigation }: Props) {
           profile.default_response_mode === 'pro'
             ? profile.default_response_mode
             : prev.responseMode,
+        semesterPreference:
+          typeof profile.exam_session === 'string' && profile.exam_session.trim()
+            ? profile.exam_session.trim()
+            : prev.semesterPreference,
       }));
       return;
     }
@@ -84,12 +92,14 @@ export default function PreferencesScreen({ navigation }: Props) {
 
     if (sessionMode === 'authenticated') {
       try {
+        const selectedMode: ResponseMode = nextPrefs.frenzyModeOverride ? 'pro' : nextPrefs.responseMode;
         await updateProfileWithBackend({
           enable_notifications: nextPrefs.dailyReminder,
           auto_save_history: nextPrefs.autoSync,
           show_quick_suggestions: !nextPrefs.compactView,
           privacy_mode: nextPrefs.privacyMode,
-          default_response_mode: nextPrefs.responseMode,
+          default_response_mode: selectedMode,
+          exam_session: nextPrefs.semesterPreference,
         });
         await refreshProfile();
       } catch {}
@@ -108,6 +118,14 @@ export default function PreferencesScreen({ navigation }: Props) {
     const newVal = Math.max(min, Math.min(max, current + delta));
     const newPrefs = { ...prefs, [key]: newVal };
     await savePrefs(newPrefs);
+  };
+
+  const updateSemester = async (semesterLabel: string) => {
+    await savePrefs({ ...prefs, semesterPreference: semesterLabel });
+  };
+
+  const updateResponseMode = async (mode: ResponseMode) => {
+    await savePrefs({ ...prefs, responseMode: mode });
   };
 
   const renderToggle = (icon: string, label: string, desc: string, key: keyof Preferences, color: string = COLORS.primary) => (
@@ -195,12 +213,24 @@ export default function PreferencesScreen({ navigation }: Props) {
         <Animated.View entering={FadeInDown.delay(350).duration(400)} style={styles.section}>
           <Text style={styles.sectionTitle}>AI Response Style</Text>
           <View style={styles.card}>
+            {renderToggle(
+              'flash-outline',
+              'Frenzy Mode Override',
+              'Force AI responses to Pro mode for maximum detail',
+              'frenzyModeOverride',
+              '#F97316'
+            )}
             <View style={styles.langRow}>
               {(['fast', 'thinking', 'pro'] as ResponseMode[]).map((mode) => (
                 <TouchableOpacity
                   key={mode}
-                  style={[styles.langChip, prefs.responseMode === mode && styles.langChipActive]}
-                  onPress={() => savePrefs({ ...prefs, responseMode: mode })}
+                  style={[
+                    styles.langChip,
+                    prefs.responseMode === mode && styles.langChipActive,
+                    prefs.frenzyModeOverride && mode !== 'pro' && styles.langChipDisabled,
+                  ]}
+                  onPress={() => updateResponseMode(mode)}
+                  disabled={prefs.frenzyModeOverride && mode !== 'pro'}
                 >
                   <Text style={[styles.langText, prefs.responseMode === mode && styles.langTextActive]}>
                     {mode[0].toUpperCase() + mode.slice(1)}
@@ -208,6 +238,27 @@ export default function PreferencesScreen({ navigation }: Props) {
                 </TouchableOpacity>
               ))}
             </View>
+            {prefs.frenzyModeOverride ? (
+              <Text style={styles.helperText}>Frenzy override active: chat requests will use Pro mode.</Text>
+            ) : null}
+          </View>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(375).duration(400)} style={styles.section}>
+          <Text style={styles.sectionTitle}>Semester Preference</Text>
+          <View style={styles.card}>
+            <View style={styles.langRow}>
+              {['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4', 'Sem 5', 'Sem 6'].map((semester) => (
+                <TouchableOpacity
+                  key={semester}
+                  style={[styles.langChip, prefs.semesterPreference === semester && styles.langChipActive, styles.semChip]}
+                  onPress={() => updateSemester(semester)}
+                >
+                  <Text style={[styles.langText, prefs.semesterPreference === semester && styles.langTextActive]}>{semester}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.helperText}>Used as your default semester in profile/preferences sync.</Text>
           </View>
         </Animated.View>
 
@@ -270,6 +321,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background, alignItems: 'center', borderWidth: 1.5, borderColor: 'transparent',
   },
   langChipActive: { backgroundColor: COLORS.primary + '10', borderColor: COLORS.primary },
+  langChipDisabled: { opacity: 0.45 },
   langText: { ...FONTS.bodyBold, fontSize: 14, color: COLORS.textSecondary },
   langTextActive: { color: COLORS.primary },
+  semChip: { flexBasis: '30%' },
+  helperText: {
+    ...FONTS.small,
+    color: COLORS.textSecondary,
+    marginTop: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+  },
 });

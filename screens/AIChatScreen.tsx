@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Alert, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 import {
@@ -13,6 +14,7 @@ import {
   getHistoryWithBackend,
   getSessionsWithBackend,
   renameSessionWithBackend,
+  ResponseMode,
   SessionSummary,
 } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +24,7 @@ interface Message {
   text: string;
   isUser: boolean;
   timestamp: Date;
+  isTyping?: boolean;
 }
 
 interface Props {
@@ -36,19 +39,20 @@ const QUICK_PROMPTS = [
 ];
 
 const AI_RESPONSES: Record<string, string> = {
-  default: "I'm BCABuddy AI! I can help you with study plans, concept explanations, exam preparation tips, and more. What would you like to know?",
-  'data structures': "Data Structures is all about organizing data efficiently! Here's a quick roadmap:\n\n1\ufe0f\u20e3 Start with Arrays & Strings\n2\ufe0f\u20e3 Master Linked Lists\n3\ufe0f\u20e3 Learn Stacks & Queues\n4\ufe0f\u20e3 Dive into Trees & Graphs\n5\ufe0f\u20e3 Practice Dynamic Programming\n\n\ud83d\udca1 Tip: Focus on understanding the time complexity of each operation!",
-  'study plan': "Here's your optimized study plan for this week:\n\n\ud83d\udfe2 Mon: Data Structures - Dynamic Programming (2h)\n\ud83d\udfe2 Tue: DBMS - Concurrency Control (2h)\n\ud83d\udfe2 Wed: OS - Deadlocks & Memory (2.5h)\n\ud83d\udfe2 Thu: Networks - Data Link Layer (2h)\n\ud83d\udfe2 Fri: Math Backlog - Eigenvalues (2h)\n\ud83d\udfe1 Sat: Revision & Practice (3h)\n\ud83d\udd34 Sun: Rest + Light Review (1h)\n\nTotal: ~14.5 hours. You got this! \ud83d\udcaa",
-  'exam': "Exam preparation tips:\n\n\u2705 Start revision 2 weeks before\n\u2705 Solve previous year papers (last 5 years)\n\u2705 Make formula sheets for quick review\n\u2705 Study in 45-min focused blocks\n\u2705 Teach concepts to someone else\n\u2705 Get proper sleep before the exam\n\u2705 Stay hydrated and take breaks\n\n\ud83c\udfaf Focus on high-weightage topics first!",
-  'dbms': "DBMS Key Concepts Summary:\n\n\ud83d\udcca ER Model: Entities, Attributes, Relationships\n\ud83d\udcca Relational Model: Tables, Keys, Constraints\n\ud83d\udcca SQL: SELECT, JOIN, GROUP BY, Subqueries\n\ud83d\udcca Normalization: 1NF \u2192 2NF \u2192 3NF \u2192 BCNF\n\ud83d\udcca Transactions: ACID properties\n\ud83d\udcca Concurrency: Locks, Timestamps, MVCC\n\n\ud83d\udca1 Pro tip: Practice writing SQL queries daily!",
+  default: "I am BCABuddy AI. I can help with study plans, concepts, exam prep, and revision strategy. What should we start with?",
+  'data structures': "Data Structures roadmap:\n\n1. Arrays and Strings\n2. Linked Lists\n3. Stacks and Queues\n4. Trees and Graphs\n5. Dynamic Programming\n\nTip: Focus on time and space complexity for every topic.",
+  'study plan': "Weekly plan example:\n\nMon: Data Structures (2h)\nTue: DBMS (2h)\nWed: Operating Systems (2.5h)\nThu: Networks (2h)\nFri: Mathematics backlog (2h)\nSat: Revision and mock test (3h)\nSun: Light review (1h)\n\nTotal: around 14-15 hours.",
+  'exam': "Exam prep checklist:\n\n- Start revision 2 weeks early\n- Solve last 5 years papers\n- Keep one-page formula notes\n- Study in focused 45-minute blocks\n- Sleep properly before exam day\n- Revise high-weightage topics first",
+  'dbms': "DBMS quick summary:\n\n- ER model and relationships\n- Relational model and keys\n- SQL joins, group by, subqueries\n- Normalization (1NF to BCNF)\n- Transactions and ACID\n- Concurrency control\n\nPractice SQL queries daily for speed.",
 };
 
 export default function AIChatScreen({ navigation }: Props) {
   const { sessionMode } = useAuth();
+  const [effectiveResponseMode, setEffectiveResponseMode] = useState<ResponseMode>('thinking');
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '0',
-      text: "Hey there! \ud83d\udc4b I'm BCABuddy AI, your personal study assistant. Ask me anything about your BCA subjects, study plans, or exam prep!",
+      text: "Hey! I am BCABuddy AI, your study assistant. Ask me about BCA subjects, study plans, or exam prep.",
       isUser: false,
       timestamp: new Date(),
     },
@@ -62,6 +66,71 @@ export default function AIChatScreen({ navigation }: Props) {
   const [renameSessionId, setRenameSessionId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const flatListRef = useRef<FlatList>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const animateAssistantMessage = async (fullText: string) => {
+    const text = String(fullText || '');
+    const msgId = `${Date.now()}-ai`;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: msgId,
+        text: '',
+        isUser: false,
+        timestamp: new Date(),
+        isTyping: true,
+      },
+    ]);
+
+    if (!text.length) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msgId ? { ...m, text: 'No response available.', isTyping: false } : m))
+      );
+      return;
+    }
+
+    const step = Math.max(1, Math.min(4, Math.floor(text.length / 140)));
+    let i = 0;
+
+    while (i < text.length) {
+      if (!isMountedRef.current) return;
+      i = Math.min(text.length, i + step);
+      const chunk = text.slice(0, i);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msgId ? { ...m, text: chunk, isTyping: i < text.length } : m))
+      );
+      await sleep(16);
+    }
+  };
+
+  const loadChatPreferences = async () => {
+    try {
+      const raw = await AsyncStorage.getItem('@bcabuddy_preferences');
+      if (!raw) {
+        setEffectiveResponseMode('thinking');
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const frenzy = Boolean(parsed.frenzyModeOverride);
+      const modeRaw = String(parsed.responseMode || 'thinking');
+      const preferredMode: ResponseMode =
+        modeRaw === 'fast' || modeRaw === 'thinking' || modeRaw === 'pro' ? modeRaw : 'thinking';
+
+      setEffectiveResponseMode(frenzy ? 'pro' : preferredMode);
+    } catch {
+      setEffectiveResponseMode('thinking');
+    }
+  };
 
   const loadSessions = async () => {
     if (sessionMode !== 'authenticated') {
@@ -127,6 +196,12 @@ export default function AIChatScreen({ navigation }: Props) {
 
     runHealthCheck();
   }, []);
+
+  useEffect(() => {
+    loadChatPreferences();
+    const unsubscribe = navigation.addListener('focus', loadChatPreferences);
+    return unsubscribe;
+  }, [navigation]);
 
   useEffect(() => {
     loadSessions();
@@ -241,15 +316,9 @@ export default function AIChatScreen({ navigation }: Props) {
     try {
       const backendReply = await chatWithBackend(text.trim(), {
         sessionId: activeSessionId,
-        responseMode: 'thinking',
+        responseMode: effectiveResponseMode,
       });
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        text: backendReply.text,
-        isUser: false,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+      await animateAssistantMessage(backendReply.text);
       if (backendReply.sessionId) {
         setActiveSessionId(backendReply.sessionId);
       }
@@ -262,13 +331,7 @@ export default function AIChatScreen({ navigation }: Props) {
         ? '\n\n[Backend connected, but auth token missing. Login token required for /chat.]'
         : '\n\n[Using offline mode response due to backend error.]';
 
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        text: `${fallbackText}${advisory}`,
-        isUser: false,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiMsg]);
+      await animateAssistantMessage(`${fallbackText}${advisory}`);
       setBackendOnline(false);
     }
   };
@@ -285,6 +348,7 @@ export default function AIChatScreen({ navigation }: Props) {
       )}
       <View style={[styles.msgBubble, item.isUser ? styles.msgBubbleUser : styles.msgBubbleAI]}>
         <Text style={[styles.msgText, item.isUser && { color: COLORS.white }]}>{item.text}</Text>
+        {!item.isUser && item.isTyping ? <Text style={styles.typingCursor}>▋</Text> : null}
       </View>
     </Animated.View>
   );
@@ -305,6 +369,7 @@ export default function AIChatScreen({ navigation }: Props) {
             <Text style={[styles.headerStatus, { color: backendOnline ? COLORS.success : COLORS.warning }]}>
               ● {backendOnline ? 'Azure Backend Online' : 'Offline Fallback Mode'}
             </Text>
+            <Text style={styles.headerModeText}>Mode: {effectiveResponseMode.toUpperCase()}</Text>
           </View>
         </View>
         <TouchableOpacity style={styles.moreBtn}>
@@ -451,6 +516,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { ...FONTS.bodyBold },
   headerStatus: { ...FONTS.small, color: COLORS.success, fontSize: 10 },
+  headerModeText: { ...FONTS.small, color: COLORS.textSecondary, fontSize: 10, fontWeight: '700' },
   moreBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   sessionsWrap: {
     backgroundColor: COLORS.white,
@@ -590,6 +656,7 @@ const styles = StyleSheet.create({
   msgBubbleUser: { backgroundColor: COLORS.primary, borderBottomRightRadius: 4 },
   msgBubbleAI: { backgroundColor: COLORS.white, borderBottomLeftRadius: 4, ...SHADOWS.sm },
   msgText: { ...FONTS.body, lineHeight: 22 },
+  typingCursor: { ...FONTS.bodyBold, color: COLORS.primary, marginTop: 2 },
   promptsSection: { paddingTop: SPACING.xl },
   loadingHistoryText: { ...FONTS.small, color: COLORS.textMuted, textAlign: 'center', paddingVertical: SPACING.md },
   promptsTitle: { ...FONTS.caption, marginBottom: SPACING.md },

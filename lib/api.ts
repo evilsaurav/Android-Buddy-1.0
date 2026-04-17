@@ -75,7 +75,33 @@ async function throwApiError(
   }
 
   const text = await res.text().catch(() => '');
-  throw new ApiError(text || `${fallbackMessage} with ${res.status}`, code, res.status);
+  let message = text.trim();
+
+  if (message) {
+    try {
+      const parsed = JSON.parse(message) as Record<string, unknown>;
+      const detail = parsed?.detail;
+      if (typeof detail === 'string' && detail.trim()) {
+        message = detail.trim();
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        message = detail.map((x) => String(x)).join(', ');
+      } else if (typeof parsed?.message === 'string' && parsed.message.trim()) {
+        message = parsed.message.trim();
+      }
+    } catch {
+      // Keep raw text if backend did not return JSON.
+    }
+  }
+
+  if (!message) {
+    if (res.status === 429) {
+      message = 'Server is busy right now. Please retry in a moment.';
+    } else {
+      message = `${fallbackMessage} with ${res.status}`;
+    }
+  }
+
+  throw new ApiError(message, code, res.status);
 }
 
 export async function getStoredToken(): Promise<string | null> {
@@ -121,13 +147,21 @@ export interface LatestStudyRoadmap {
   roadmap_id?: number;
   title?: string;
   subject?: string;
-  semester?: number;
+  semester?: number | string;
   duration_days?: number;
   total_days?: number;
   completed_days?: number;
   completion_pct?: number;
   created_at?: string;
   days?: Array<Record<string, unknown>>;
+  raw_text?: string;
+}
+
+export interface RoadmapAcceptPayload {
+  subject: string;
+  semester: string;
+  duration_days: number;
+  roadmap_text: string;
 }
 
 interface ProfileUpdatePayload {
@@ -145,10 +179,42 @@ interface ProfileUpdatePayload {
 
 export interface SubjectiveGradingPayload {
   question: string;
-  student_answer: string;
-  expected_answer?: string;
+  answer: string;
+  subject: string;
+  semester: number;
+  max_marks?: number;
+}
+
+export interface McqExplainPayload {
+  question: string;
+  options: string[];
+  correct_answer: string;
   subject?: string;
   semester?: number;
+}
+
+export interface ExplainQuestionPayload {
+  action: string;
+  question_text: string;
+  correct_answer: string;
+  user_answer?: string;
+}
+
+export interface SyllabusProgressResponse {
+  subject?: string;
+  semester?: number | string;
+  completion_pct?: number;
+  topics_total?: number;
+  topics_covered?: number;
+  weak_topics?: string[];
+  [key: string]: unknown;
+}
+
+export interface ApcPerformanceSummary {
+  generated_at?: string | null;
+  eta_minutes?: number;
+  highlights?: string[];
+  report_markdown?: string;
 }
 
 export interface RoadmapHistoryItem {
@@ -379,15 +445,15 @@ export async function fetchLatestStudyRoadmapWithBackend(): Promise<LatestStudyR
   return (await res.json()) as LatestStudyRoadmap;
 }
 
-export async function acceptStudyRoadmapWithBackend(roadmapId?: number): Promise<Record<string, unknown>> {
+export async function acceptStudyRoadmapWithBackend(payload: RoadmapAcceptPayload): Promise<Record<string, unknown>> {
   const token = await requireToken();
-  const query = typeof roadmapId === 'number' ? `?roadmap_id=${roadmapId}` : '';
-  const res = await fetch(buildApiUrl(`/study-roadmap/accept${query}`), {
+  const res = await fetch(buildApiUrl('/study-roadmap/accept'), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {
@@ -435,7 +501,13 @@ export async function gradeSubjectiveWithBackend(payload: SubjectiveGradingPaylo
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      subject: payload.subject,
+      semester: payload.semester,
+      question: payload.question,
+      answer: payload.answer,
+      max_marks: payload.max_marks ?? 10,
+    }),
   });
 
   if (!res.ok) {
@@ -458,7 +530,7 @@ export async function changePasswordWithBackend(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      current_password: currentPassword,
+      old_password: currentPassword,
       new_password: newPassword,
       confirm_password: confirmPassword,
     }),
@@ -686,7 +758,133 @@ export async function uploadProfilePictureWithBackend(fileUri: string): Promise<
     type: 'image/jpeg',
   } as unknown as Blob);
 
-  const res = await fetch(buildApiUrl('/upload-profile-picture'), {
+  let res = await fetch(buildApiUrl('/upload-avatar'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (res.status === 404) {
+    res = await fetch(buildApiUrl('/profile/upload-picture'), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+  }
+
+  if (!res.ok) {
+    await throwApiError(res, 'AVATAR_UPLOAD_FAILED', 'Avatar upload failed');
+  }
+
+  const data = (await res.json()) as Record<string, unknown>;
+  return String(data.url || data.profile_pic_url || data.profile_picture_url || '');
+}
+
+export async function explainMcqWithBackend(payload: McqExplainPayload): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl('/explain-mcq'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'EXPLAIN_MCQ_FAILED', 'MCQ explanation failed');
+  }
+
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function explainQuestionWithBackend(payload: ExplainQuestionPayload): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl('/explain-question'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'EXPLAIN_QUESTION_FAILED', 'Question explanation failed');
+  }
+
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function fetchSyllabusProgressWithBackend(subject?: string): Promise<SyllabusProgressResponse> {
+  const token = await requireToken();
+  const query = subject ? `?subject=${encodeURIComponent(subject)}` : '';
+  const res = await fetch(buildApiUrl(`/syllabus-progress${query}`), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'SYLLABUS_PROGRESS_FAILED', 'Syllabus progress fetch failed');
+  }
+
+  return (await res.json()) as SyllabusProgressResponse;
+}
+
+export async function fetchApcPerformanceReportWithBackend(): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl('/apc/performance-report'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'APC_REPORT_FAILED', 'APC performance report failed');
+  }
+
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function fetchLatestApcPerformanceSummaryWithBackend(): Promise<ApcPerformanceSummary> {
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl('/apc/performance-summary/latest'), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'APC_SUMMARY_FAILED', 'APC performance summary fetch failed');
+  }
+
+  return (await res.json()) as ApcPerformanceSummary;
+}
+
+export async function uploadApcOcrQuizWithBackend(fileUri: string, remarks = ''): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const formData = new FormData();
+  const fileName = fileUri.split('/').pop() || `ocr-${Date.now()}.jpg`;
+  formData.append('file', {
+    uri: fileUri,
+    name: fileName,
+    type: fileName.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg',
+  } as unknown as Blob);
+  formData.append('remarks', remarks);
+
+  const res = await fetch(buildApiUrl('/apc/ocr-quiz'), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -695,11 +893,42 @@ export async function uploadProfilePictureWithBackend(fileUri: string): Promise<
   });
 
   if (!res.ok) {
-    await throwApiError(res, 'AVATAR_UPLOAD_FAILED', 'Avatar upload failed');
+    await throwApiError(res, 'APC_OCR_QUIZ_FAILED', 'APC OCR quiz failed');
   }
 
-  const data = (await res.json()) as Record<string, unknown>;
-  return String(data.url || data.profile_picture_url || '');
+  return (await res.json()) as Record<string, unknown>;
+}
+
+export async function logApcWithBackend(
+  tool: string,
+  subject: string,
+  response: string,
+  semester?: string
+): Promise<Record<string, unknown>> {
+  const token = await requireToken();
+  const params = new URLSearchParams({
+    tool: String(tool || '').trim(),
+    subject: String(subject || '').trim(),
+    response: String(response || '').trim(),
+  });
+  if (semester && semester.trim()) {
+    params.set('semester', semester.trim());
+  }
+
+  const res = await fetch(buildApiUrl(`/apc/log?${params.toString()}`), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'APC_LOG_FAILED', 'APC log failed');
+  }
+
+  return (await res.json()) as Record<string, unknown>;
 }
 
 export interface GeneratedQuestion {

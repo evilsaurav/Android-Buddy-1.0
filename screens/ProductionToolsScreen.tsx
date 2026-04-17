@@ -8,7 +8,11 @@ import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 import { useAuth } from '../context/AuthContext';
 import {
   callApcEndpointWithBackend,
+  fetchApcPerformanceReportWithBackend,
+  fetchLatestApcPerformanceSummaryWithBackend,
+  logApcWithBackend,
   solveAssignmentWithBackend,
+  uploadApcOcrQuizWithBackend,
   uploadGenericFileWithBackend,
   uploadNotesOcrWithBackend,
 } from '../lib/api';
@@ -27,7 +31,7 @@ export default function ProductionToolsScreen({ navigation }: Props) {
   const { sessionMode } = useAuth();
   const [apcAction, setApcAction] = useState('study-coach');
   const [apcPayload, setApcPayload] = useState('{"prompt":"Create a focused plan for operating systems."}');
-  const [busyTool, setBusyTool] = useState<null | 'apc' | 'ocr' | 'assignment' | 'upload'>(null);
+  const [busyTool, setBusyTool] = useState<null | 'apc' | 'ocr' | 'assignment' | 'upload' | 'summary' | 'report'>(null);
   const [resultText, setResultText] = useState('');
 
   const ensureAuth = () => {
@@ -82,7 +86,7 @@ export default function ProductionToolsScreen({ navigation }: Props) {
 
       const data =
         type === 'ocr'
-          ? await uploadNotesOcrWithBackend(uri)
+          ? await uploadApcOcrQuizWithBackend(uri, 'Generated from Android Buddy production tools')
           : type === 'assignment'
             ? await solveAssignmentWithBackend(uri)
             : await uploadGenericFileWithBackend(uri);
@@ -90,6 +94,36 @@ export default function ProductionToolsScreen({ navigation }: Props) {
       setResultText(JSON.stringify(data, null, 2));
     } catch (error) {
       setResultText(String((error as Error)?.message || 'Upload request failed'));
+    } finally {
+      setBusyTool(null);
+    }
+  };
+
+  const loadSummary = async () => {
+    if (!ensureAuth()) return;
+    try {
+      setBusyTool('summary');
+      const data = await fetchLatestApcPerformanceSummaryWithBackend();
+      setResultText(JSON.stringify(data, null, 2));
+    } catch (error) {
+      setResultText(String((error as Error)?.message || 'Summary request failed'));
+    } finally {
+      setBusyTool(null);
+    }
+  };
+
+  const runReport = async () => {
+    if (!ensureAuth()) return;
+    try {
+      setBusyTool('report');
+      const data = await fetchApcPerformanceReportWithBackend();
+      setResultText(JSON.stringify(data, null, 2));
+      const markdown = String(data?.report_markdown || '');
+      if (markdown.trim()) {
+        await logApcWithBackend('performance_report', 'general', markdown.slice(0, 2000));
+      }
+    } catch (error) {
+      setResultText(String((error as Error)?.message || 'Report request failed'));
     } finally {
       setBusyTool(null);
     }
@@ -148,6 +182,17 @@ export default function ProductionToolsScreen({ navigation }: Props) {
             <Ionicons name="rocket-outline" size={16} color={COLORS.white} />
             <Text style={styles.primaryBtnText}>{busyTool === 'apc' ? 'Running...' : 'Run APC'}</Text>
           </TouchableOpacity>
+
+          <View style={styles.secondaryRow}>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={loadSummary}>
+              <Ionicons name="analytics-outline" size={16} color={COLORS.primary} />
+              <Text style={styles.secondaryBtnText}>{busyTool === 'summary' ? 'Loading...' : 'Load Summary'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={runReport}>
+              <Ionicons name="bar-chart-outline" size={16} color={COLORS.primary} />
+              <Text style={styles.secondaryBtnText}>{busyTool === 'report' ? 'Generating...' : 'Run Report'}</Text>
+            </TouchableOpacity>
+          </View>
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(120).duration(350)} style={styles.card}>
@@ -157,7 +202,7 @@ export default function ProductionToolsScreen({ navigation }: Props) {
           <View style={styles.uploadGrid}>
             <TouchableOpacity style={styles.uploadBtn} onPress={() => pickAndUpload('ocr')}>
               <Ionicons name="scan-outline" size={18} color={COLORS.primary} />
-              <Text style={styles.uploadText}>{busyTool === 'ocr' ? 'Uploading...' : 'Upload Notes OCR'}</Text>
+              <Text style={styles.uploadText}>{busyTool === 'ocr' ? 'Uploading...' : 'APC OCR Quiz'}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.uploadBtn} onPress={() => pickAndUpload('assignment')}>
               <Ionicons name="school-outline" size={18} color={COLORS.primary} />
@@ -166,6 +211,28 @@ export default function ProductionToolsScreen({ navigation }: Props) {
             <TouchableOpacity style={styles.uploadBtn} onPress={() => pickAndUpload('upload')}>
               <Ionicons name="cloud-upload-outline" size={18} color={COLORS.primary} />
               <Text style={styles.uploadText}>{busyTool === 'upload' ? 'Uploading...' : 'Generic Upload'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.uploadBtn} onPress={async () => {
+              if (!ensureAuth()) return;
+              const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (permission.status !== 'granted') {
+                Alert.alert('Permission required', 'Please allow gallery access to upload files.');
+                return;
+              }
+              const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 });
+              if (picked.canceled || !picked.assets?.length) return;
+              try {
+                setBusyTool('upload');
+                const data = await uploadNotesOcrWithBackend(picked.assets[0].uri);
+                setResultText(JSON.stringify(data, null, 2));
+              } catch (error) {
+                setResultText(String((error as Error)?.message || 'Notes OCR request failed'));
+              } finally {
+                setBusyTool(null);
+              }
+            }}>
+              <Ionicons name="document-text-outline" size={18} color={COLORS.primary} />
+              <Text style={styles.uploadText}>Notes OCR Summary</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -241,6 +308,23 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
   },
   primaryBtnText: { ...FONTS.bodyBold, color: COLORS.white, fontSize: 13 },
+  secondaryRow: {
+    marginTop: SPACING.sm,
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  secondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '35',
+    borderRadius: RADIUS.full,
+    paddingVertical: SPACING.sm,
+  },
+  secondaryBtnText: { ...FONTS.small, color: COLORS.primary, fontWeight: '700' },
   uploadGrid: {
     gap: SPACING.sm,
   },

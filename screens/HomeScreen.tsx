@@ -8,17 +8,23 @@ import { SUBJECTS, AI_SUGGESTIONS, STUDY_TIPS } from '../lib/data';
 import SubjectCard from '../components/SubjectCard';
 import AIBubble from '../components/AIBubble';
 import { useAuth } from '../context/AuthContext';
-import { DashboardStats, fetchDashboardStatsWithBackend } from '../lib/api';
+import {
+  DashboardStats,
+  SyllabusProgressResponse,
+  fetchDashboardStatsWithBackend,
+  fetchSyllabusProgressWithBackend,
+} from '../lib/api';
 
 interface Props {
   navigation: any;
 }
 
 export default function HomeScreen({ navigation }: Props) {
-  const { sessionMode } = useAuth();
+  const { sessionMode, profile } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [syllabusProgress, setSyllabusProgress] = useState<SyllabusProgressResponse | null>(null);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -32,13 +38,19 @@ export default function HomeScreen({ navigation }: Props) {
     const loadDashboardStats = async () => {
       if (sessionMode !== 'authenticated') {
         setDashboardStats(null);
+        setSyllabusProgress(null);
         return;
       }
       try {
-        const data = await fetchDashboardStatsWithBackend();
+        const [data, syllabus] = await Promise.all([
+          fetchDashboardStatsWithBackend(),
+          fetchSyllabusProgressWithBackend(),
+        ]);
         setDashboardStats(data);
+        setSyllabusProgress(syllabus);
       } catch {
         setDashboardStats(null);
+        setSyllabusProgress(null);
       }
     };
 
@@ -50,6 +62,20 @@ export default function HomeScreen({ navigation }: Props) {
   const upcomingExams = SUBJECTS.filter((s) => s.examDate).length;
   const totalSessions = Number(dashboardStats?.total_sessions || 0);
   const avgQuizScore = Number(dashboardStats?.avg_quiz_score || 0);
+  const syllabusPct = Number(syllabusProgress?.completion_pct || 0);
+
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 5
+      ? 'Good Night'
+      : hour < 12
+        ? 'Good Morning'
+        : hour < 17
+          ? 'Good Afternoon'
+          : hour < 21
+            ? 'Good Evening'
+            : 'Good Night';
+  const userName = String(profile?.display_name || profile?.username || '').trim() || 'BCA Student';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -60,8 +86,8 @@ export default function HomeScreen({ navigation }: Props) {
         {/* Header */}
         <Animated.View entering={FadeInDown.delay(100).duration(500)} style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Good Morning! 🌞</Text>
-            <Text style={styles.name}>BCA Student</Text>
+            <Text style={styles.greeting}>{greeting}</Text>
+            <Text style={styles.name}>{userName}</Text>
           </View>
           <TouchableOpacity style={styles.notifBtn}>
             <Ionicons name="notifications-outline" size={24} color={COLORS.text} />
@@ -86,7 +112,9 @@ export default function HomeScreen({ navigation }: Props) {
             <View style={[styles.statIcon, { backgroundColor: COLORS.primary + '15' }]}>
               <Ionicons name="pie-chart" size={20} color={COLORS.primary} />
             </View>
-            <Text style={styles.statValue}>{Math.round(totalProgress * 100)}%</Text>
+            <Text style={styles.statValue}>
+              {sessionMode === 'authenticated' ? `${Math.round(syllabusPct)}%` : `${Math.round(totalProgress * 100)}%`}
+            </Text>
             <Text style={styles.statLabel}>Overall</Text>
           </View>
           <View style={styles.statCard}>

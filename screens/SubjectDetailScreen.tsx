@@ -6,7 +6,15 @@ import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 import { Subject, Topic } from '../lib/data';
 import { useAuth } from '../context/AuthContext';
-import { GeneratedQuestion, generateExamWithBackend, generateQuizWithBackend, resolveBackendSubjectCode } from '../lib/api';
+import {
+  ApiError,
+  GeneratedQuestion,
+  explainMcqWithBackend,
+  explainQuestionWithBackend,
+  generateExamWithBackend,
+  generateQuizWithBackend,
+  resolveBackendSubjectCode,
+} from '../lib/api';
 
 interface Props {
   route: any;
@@ -21,6 +29,9 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
   const [loadingTool, setLoadingTool] = useState<'quiz' | 'exam' | null>(null);
   const [generatedItems, setGeneratedItems] = useState<GeneratedQuestion[]>([]);
   const [generatedTitle, setGeneratedTitle] = useState('');
+  const [toolError, setToolError] = useState('');
+  const [explainingIndex, setExplainingIndex] = useState<number | null>(null);
+  const [explanationText, setExplanationText] = useState('');
 
   const filteredTopics = topics.filter((t) => {
     if (filter === 'pending') return !t.completed;
@@ -48,17 +59,25 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
     if (sessionMode !== 'authenticated') {
       setGeneratedTitle('Login required for live quiz generation');
       setGeneratedItems([]);
+      setToolError('');
       return;
     }
 
     try {
       setLoadingTool('quiz');
+      setToolError('');
+      setExplanationText('');
       const items = await generateQuizWithBackend(subject.name, subject.semester, 8);
       setGeneratedTitle(`Subject Quiz • ${backendSubjectCode}`);
       setGeneratedItems(items);
-    } catch {
+      if (!items.length) {
+        setToolError('Quiz endpoint returned no questions. Try again in a moment.');
+      }
+    } catch (err) {
+      const e = err as ApiError;
       setGeneratedTitle('Unable to generate subject quiz');
       setGeneratedItems([]);
+      setToolError(String(e?.message || 'Subject quiz generation failed.'));
     } finally {
       setLoadingTool(null);
     }
@@ -68,19 +87,65 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
     if (sessionMode !== 'authenticated') {
       setGeneratedTitle('Login required for live exam generation');
       setGeneratedItems([]);
+      setToolError('');
       return;
     }
 
     try {
       setLoadingTool('exam');
+      setToolError('');
+      setExplanationText('');
       const items = await generateExamWithBackend(subject.name, subject.semester, 6, 2);
       setGeneratedTitle(`Subject Exam • ${backendSubjectCode}`);
       setGeneratedItems(items);
-    } catch {
+      if (!items.length) {
+        setToolError('Exam endpoint returned empty payload. Retry after a few seconds.');
+      }
+    } catch (err) {
+      const e = err as ApiError;
       setGeneratedTitle('Unable to generate subject exam');
       setGeneratedItems([]);
+      setToolError(String(e?.message || 'Subject exam generation failed.'));
     } finally {
       setLoadingTool(null);
+    }
+  };
+
+  const explainGeneratedQuestion = async (item: GeneratedQuestion, idx: number) => {
+    if (sessionMode !== 'authenticated') {
+      setToolError('Login required to explain generated questions.');
+      return;
+    }
+
+    try {
+      setToolError('');
+      setExplainingIndex(idx);
+      let response: Record<string, unknown>;
+      if (Array.isArray(item.options) && item.options.length > 0) {
+        response = await explainMcqWithBackend({
+          question: item.question,
+          options: item.options,
+          correct_answer: item.correct_answer || item.options[0],
+          subject: backendSubjectCode,
+          semester: subject.semester,
+        });
+      } else {
+        response = await explainQuestionWithBackend({
+          action: 'subjective_review',
+          question_text: item.question,
+          correct_answer: item.correct_answer || 'No model answer available.',
+          user_answer: '',
+        });
+      }
+
+      setExplanationText(
+        String(response.explanation || response.answer || response.message || 'No explanation returned.').trim()
+      );
+    } catch (err) {
+      const e = err as ApiError;
+      setToolError(String(e?.message || 'Unable to fetch explanation.'));
+    } finally {
+      setExplainingIndex(null);
     }
   };
 
@@ -168,15 +233,21 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
           {generatedTitle ? (
             <View style={styles.generatedWrap}>
               <Text style={styles.generatedTitle}>{generatedTitle}</Text>
+              {toolError ? <Text style={styles.generatedError}>{toolError}</Text> : null}
               {generatedItems.length === 0 ? (
                 <Text style={styles.generatedEmpty}>No generated items.</Text>
               ) : (
                 generatedItems.slice(0, 4).map((item, idx) => (
                   <View key={`${idx}-${item.question}`} style={styles.generatedItem}>
                     <Text style={styles.generatedQuestion}>{idx + 1}. {item.question}</Text>
+                    <TouchableOpacity style={styles.explainBtn} onPress={() => explainGeneratedQuestion(item, idx)}>
+                      <Ionicons name="help-circle-outline" size={13} color={COLORS.primary} />
+                      <Text style={styles.explainBtnText}>{explainingIndex === idx ? 'Explaining...' : 'Explain'}</Text>
+                    </TouchableOpacity>
                   </View>
                 ))
               )}
+              {explanationText ? <Text style={styles.explanationText}>{explanationText}</Text> : null}
             </View>
           ) : null}
         </Animated.View>
@@ -290,6 +361,7 @@ const styles = StyleSheet.create({
   aiActionText: { ...FONTS.small, color: COLORS.primary, fontWeight: '700' },
   generatedWrap: { marginTop: SPACING.md },
   generatedTitle: { ...FONTS.small, color: COLORS.textSecondary, marginBottom: SPACING.xs },
+  generatedError: { ...FONTS.small, color: COLORS.danger, marginBottom: SPACING.xs },
   generatedEmpty: { ...FONTS.small, color: COLORS.textMuted },
   generatedItem: {
     paddingVertical: SPACING.xs,
@@ -297,6 +369,20 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
   },
   generatedQuestion: { ...FONTS.body, fontSize: 12 },
+  explainBtn: {
+    marginTop: SPACING.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: COLORS.primary + '35',
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+  },
+  explainBtnText: { ...FONTS.small, color: COLORS.primary, fontWeight: '700' },
+  explanationText: { ...FONTS.small, color: COLORS.text, marginTop: SPACING.sm, lineHeight: 18 },
   aiInsightHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, marginBottom: SPACING.sm },
   aiInsightLabel: { ...FONTS.small, color: COLORS.secondary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   aiInsightText: { ...FONTS.body, lineHeight: 20, color: COLORS.textSecondary },
