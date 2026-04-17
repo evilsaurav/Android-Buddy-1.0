@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 const DEFAULT_BACKEND_BASE_URL = 'https://bcabuddy-web-f5dfgtb2b0dmc8aq.centralindia-01.azurewebsites.net';
 const ACCESS_TOKEN_KEY = '@bcabuddy_access_token';
@@ -51,6 +52,75 @@ export function buildApiUrl(path: string): string {
 
   const normalized = path.startsWith('/') ? path : `/${path}`;
   return `${getBackendBaseUrl()}${normalized}`;
+}
+
+function inferMimeType(fileName: string): string {
+  const normalized = fileName.toLowerCase();
+  if (normalized.endsWith('.png')) return 'image/png';
+  if (normalized.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+function inferFileName(fileUri: string, fallbackPrefix: string): string {
+  const raw = fileUri.split('/').pop() || `${fallbackPrefix}-${Date.now()}.jpg`;
+  const clean = raw.split('?')[0].split('#')[0].trim();
+  return clean || `${fallbackPrefix}-${Date.now()}.jpg`;
+}
+
+function isValidRemoteImageUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const url = value.trim();
+  return /^https?:\/\//i.test(url);
+}
+
+function extractAvatarUrl(payload: Record<string, unknown>): string {
+  const direct = payload.url || payload.profile_pic_url || payload.profile_picture_url;
+  if (isValidRemoteImageUrl(direct)) {
+    return direct.trim();
+  }
+
+  const nested = payload.data;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    const bag = nested as Record<string, unknown>;
+    const nestedUrl = bag.url || bag.profile_pic_url || bag.profile_picture_url;
+    if (isValidRemoteImageUrl(nestedUrl)) {
+      return nestedUrl.trim();
+    }
+  }
+
+  return '';
+}
+
+async function compressAvatarImage(fileUri: string): Promise<string> {
+  try {
+    const compressed = await ImageManipulator.manipulateAsync(
+      fileUri,
+      [{ resize: { width: 720 } }],
+      {
+        compress: 0.78,
+        format: ImageManipulator.SaveFormat.JPEG,
+      }
+    );
+    return compressed.uri || fileUri;
+  } catch {
+    return fileUri;
+  }
+}
+
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 30000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if ((error as Error)?.name === 'AbortError') {
+      throw new ApiError('Avatar upload timed out. Please check your network and retry.', 'REQUEST_TIMEOUT', 408);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function persistAuthToken(token: string): Promise<void> {
@@ -750,15 +820,19 @@ export async function clearAllSessionsWithBackend(): Promise<void> {
 
 export async function uploadProfilePictureWithBackend(fileUri: string): Promise<string> {
   const token = await requireToken();
+  const preparedUri = await compressAvatarImage(fileUri);
+  const fileName = inferFileName(preparedUri, 'avatar');
+  const mimeType = inferMimeType(fileName);
+
   const formData = new FormData();
 
   formData.append('file', {
-    uri: fileUri,
-    name: `avatar-${Date.now()}.jpg`,
-    type: 'image/jpeg',
+    uri: preparedUri,
+    name: fileName,
+    type: mimeType,
   } as unknown as Blob);
 
-  let res = await fetch(buildApiUrl('/upload-avatar'), {
+  let res = await fetchWithTimeout(buildApiUrl('/upload-avatar'), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -767,7 +841,7 @@ export async function uploadProfilePictureWithBackend(fileUri: string): Promise<
   });
 
   if (res.status === 404) {
-    res = await fetch(buildApiUrl('/profile/upload-picture'), {
+    res = await fetchWithTimeout(buildApiUrl('/profile/upload-picture'), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -780,8 +854,13 @@ export async function uploadProfilePictureWithBackend(fileUri: string): Promise<
     await throwApiError(res, 'AVATAR_UPLOAD_FAILED', 'Avatar upload failed');
   }
 
-  const data = (await res.json()) as Record<string, unknown>;
-  return String(data.url || data.profile_pic_url || data.profile_picture_url || '');
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const avatarUrl = extractAvatarUrl(data);
+  if (!avatarUrl) {
+    throw new ApiError('Server did not return a valid profile photo URL.', 'INVALID_PICTURE_URL', res.status);
+  }
+
+  return avatarUrl;
 }
 
 export async function explainMcqWithBackend(payload: McqExplainPayload): Promise<Record<string, unknown>> {
@@ -1003,16 +1082,46 @@ function normalizeQuestionArray(data: unknown): GeneratedQuestion[] {
       ? ((data as { questions?: unknown[] }).questions as unknown[])
       : [];
 
+  const normalizeOption = (value: unknown): string => {
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number') return String(value).trim();
+    if (value && typeof value === 'object') {
+      const v = value as Record<string, unknown>;
+      const candidate = v.text ?? v.option ?? v.label ?? v.value;
+      if (typeof candidate === 'string' || typeof candidate === 'number') {
+        return String(candidate).trim();
+      }
+    }
+    return '';
+  };
+
   return rows
     .map((row) => {
       const r = row as Record<string, unknown>;
       const q = String(r.question || '').trim();
       if (!q) return null;
+      const options = Array.isArray(r.options)
+        ? r.options.map(normalizeOption).filter(Boolean)
+        : undefined;
+      const rawType = String(r.type || r.question_type || r.kind || '').trim().toLowerCase();
+      const inferredType = rawType.includes('subject')
+        ? 'subjective'
+        : rawType.includes('mcq') || rawType.includes('objective') || (Array.isArray(options) && options.length > 0)
+          ? 'mcq'
+          : 'subjective';
+      const correctAnswer =
+        typeof r.correct_answer === 'string' || typeof r.correct_answer === 'number'
+          ? String(r.correct_answer).trim()
+          : undefined;
+      const finalCorrectAnswer =
+        inferredType === 'mcq'
+          ? (correctAnswer || (Array.isArray(options) && options.length > 0 ? options[0] : ''))
+          : correctAnswer;
       return {
         question: q,
-        options: Array.isArray(r.options) ? r.options.map((x) => String(x)) : undefined,
-        correct_answer: typeof r.correct_answer === 'string' ? r.correct_answer : undefined,
-        type: typeof r.type === 'string' ? r.type : undefined,
+        options,
+        correct_answer: finalCorrectAnswer,
+        type: inferredType,
         subject: typeof r.subject === 'string' ? r.subject : undefined,
         semester: typeof r.semester === 'number' ? r.semester : undefined,
       } as GeneratedQuestion;
@@ -1082,8 +1191,10 @@ export async function chatWithBackend(
 
   const body: ChatRequestBody = {
     message,
-    response_mode: options?.responseMode || 'thinking',
   };
+  if (options?.responseMode) {
+    body.response_mode = options.responseMode;
+  }
   if (typeof options?.sessionId === 'number') {
     body.session_id = options.sessionId;
   }

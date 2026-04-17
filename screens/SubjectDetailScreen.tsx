@@ -68,10 +68,16 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
       setToolError('');
       setExplanationText('');
       const items = await generateQuizWithBackend(subject.name, subject.semester, 8);
+      const validItems = items.filter((q) => {
+        const options = Array.isArray(q.options)
+          ? q.options.map((opt) => String(opt || '').trim()).filter(Boolean)
+          : [];
+        return options.length >= 4 && String(q.correct_answer || '').trim().length > 0;
+      });
       setGeneratedTitle(`Subject Quiz • ${backendSubjectCode}`);
-      setGeneratedItems(items);
-      if (!items.length) {
-        setToolError('Quiz endpoint returned no questions. Try again in a moment.');
+      setGeneratedItems(validItems);
+      if (!validItems.length) {
+        setToolError('Quiz endpoint returned no valid MCQ set (needs 4 options each). Please retry.');
       }
     } catch (err) {
       const e = err as ApiError;
@@ -96,9 +102,16 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
       setToolError('');
       setExplanationText('');
       const items = await generateExamWithBackend(subject.name, subject.semester, 6, 2);
+      const validItems = items.filter((q) => {
+        if (Array.isArray(q.options) && q.options.length > 0) {
+          const options = q.options.map((opt) => String(opt || '').trim()).filter(Boolean);
+          return options.length >= 4 && String(q.correct_answer || '').trim().length > 0;
+        }
+        return true;
+      });
       setGeneratedTitle(`Subject Exam • ${backendSubjectCode}`);
-      setGeneratedItems(items);
-      if (!items.length) {
+      setGeneratedItems(validItems);
+      if (!validItems.length) {
         setToolError('Exam endpoint returned empty payload. Retry after a few seconds.');
       }
     } catch (err) {

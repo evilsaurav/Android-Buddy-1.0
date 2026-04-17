@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,11 +23,20 @@ const DEFAULT_ACHIEVEMENTS: AchievementCard[] = [
   { icon: 'medal', label: 'Top Scorer', color: '#10B981', unlocked: false },
 ];
 
+const withAvatarCacheBuster = (uri: string): string => {
+  const value = String(uri || '').trim();
+  if (!/^https?:\/\//i.test(value)) return value;
+  const separator = value.includes('?') ? '&' : '?';
+  return `${value}${separator}av=${Date.now()}`;
+};
+
 export default function ProfileScreen({ navigation }: Props) {
   const { sessionMode, profile, logout } = useAuth();
   const [profileName, setProfileName] = useState('BCA Student');
   const [profileEmail, setProfileEmail] = useState('student@university.edu');
   const [semester, setSemester] = useState('3rd');
+  const [profileAvatar, setProfileAvatar] = useState('');
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [achievements, setAchievements] = useState<AchievementCard[]>(DEFAULT_ACHIEVEMENTS);
 
   useEffect(() => {
@@ -83,6 +92,9 @@ export default function ProfileScreen({ navigation }: Props) {
       if (semRaw) {
         setSemester(semRaw + getSuffix(semRaw));
       }
+      const avatarUrl = String(profile.profile_picture_url || profile.profile_pic_url || '').trim();
+      setProfileAvatar(avatarUrl ? withAvatarCacheBuster(avatarUrl) : '');
+      setAvatarLoadFailed(false);
       return;
     }
 
@@ -93,6 +105,10 @@ export default function ProfileScreen({ navigation }: Props) {
         if (data.name) setProfileName(data.name);
         if (data.email) setProfileEmail(data.email);
         if (data.semester) setSemester(data.semester + getSuffix(data.semester));
+        if (data.avatarUri) {
+          setProfileAvatar(withAvatarCacheBuster(String(data.avatarUri)));
+          setAvatarLoadFailed(false);
+        }
       }
     } catch {}
   };
@@ -156,7 +172,15 @@ export default function ProfileScreen({ navigation }: Props) {
         <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
-              <Ionicons name="person" size={40} color={COLORS.white} />
+              {profileAvatar && !avatarLoadFailed ? (
+                <Image
+                  source={{ uri: profileAvatar }}
+                  style={styles.avatarImage}
+                  onError={() => setAvatarLoadFailed(true)}
+                />
+              ) : (
+                <Ionicons name="person" size={40} color={COLORS.white} />
+              )}
             </View>
             <View style={styles.levelBadge}>
               <Text style={styles.levelText}>Lvl 7</Text>
@@ -290,6 +314,11 @@ const styles = StyleSheet.create({
     width: 90, height: 90, borderRadius: 45,
     backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center',
     borderWidth: 3, borderColor: COLORS.primaryLight,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   levelBadge: {
     position: 'absolute', bottom: -4, right: -4,

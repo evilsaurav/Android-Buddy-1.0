@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 import { Subject } from '../lib/data';
 
@@ -10,23 +11,53 @@ interface Props {
   compact?: boolean;
 }
 
+const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
+
 export default function SubjectCard({ subject, onPress, compact }: Props) {
   const percentage = Math.round(subject.progress * 100);
+  const pressScale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }));
+
+  const onPressIn = () => {
+    pressScale.value = withSpring(0.97, { damping: 12, stiffness: 240 });
+  };
+
+  const onPressOut = () => {
+    pressScale.value = withSpring(1, { damping: 12, stiffness: 220 });
+  };
   
   if (compact) {
     return (
-      <TouchableOpacity style={styles.compactCard} onPress={onPress} activeOpacity={0.7}>
+      <AnimatedTouchable
+        style={[styles.compactCard, animatedStyle]}
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        activeOpacity={0.9}
+      >
         <View style={[styles.compactIcon, { backgroundColor: subject.color + '15' }]}>
           <Ionicons name={subject.icon as any} size={20} color={subject.color} />
         </View>
         <Text style={styles.compactName} numberOfLines={1}>{subject.name}</Text>
-        <Text style={[styles.compactProgress, { color: subject.color }]}>{percentage}%</Text>
-      </TouchableOpacity>
+        <View style={styles.compactBottomRow}>
+          <Text style={[styles.compactProgress, { color: subject.color }]}>{percentage}%</Text>
+          <Ionicons name="arrow-forward-circle" size={14} color={subject.color} />
+        </View>
+      </AnimatedTouchable>
     );
   }
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
+    <AnimatedTouchable
+      style={[styles.card, animatedStyle]}
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      activeOpacity={0.9}
+    >
       <View style={styles.cardHeader}>
         <View style={[styles.iconBg, { backgroundColor: subject.color + '15' }]}>
           <Ionicons name={subject.icon as any} size={24} color={subject.color} />
@@ -37,9 +68,11 @@ export default function SubjectCard({ subject, onPress, compact }: Props) {
         </View>
         {subject.isBacklog && (
           <View style={styles.backlogBadge}>
+            <Ionicons name="warning" size={10} color={COLORS.danger} />
             <Text style={styles.backlogText}>Backlog</Text>
           </View>
         )}
+        <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
       </View>
       <View style={styles.progressSection}>
         <View style={styles.progressBar}>
@@ -52,11 +85,11 @@ export default function SubjectCard({ subject, onPress, compact }: Props) {
       </View>
       {subject.examDate && (
         <View style={styles.examRow}>
-          <Ionicons name="calendar-outline" size={14} color={COLORS.danger} />
+          <Ionicons name="alarm-outline" size={14} color={COLORS.danger} />
           <Text style={styles.examText}>Exam: {new Date(subject.examDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
         </View>
       )}
-    </TouchableOpacity>
+    </AnimatedTouchable>
   );
 }
 
@@ -93,10 +126,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   backlogBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     backgroundColor: COLORS.dangerLight,
     paddingHorizontal: SPACING.sm,
     paddingVertical: SPACING.xs,
     borderRadius: RADIUS.full,
+    marginRight: SPACING.xs,
   },
   backlogText: {
     ...FONTS.small,
@@ -169,5 +206,10 @@ const styles = StyleSheet.create({
   compactProgress: {
     ...FONTS.bodyBold,
     fontSize: 13,
+  },
+  compactBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
   },
 });

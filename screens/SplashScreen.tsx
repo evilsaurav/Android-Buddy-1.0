@@ -69,7 +69,7 @@ export default function SplashScreen({ onFinish }: Props) {
       </Animated.View>
 
       <View style={styles.bottom}>
-        <Text style={styles.madeWith}>Made with â¤ï¸ by BCA Students</Text>
+        <Text style={styles.madeWith}>Designed with ❤️ by Insomniac for Frenzy</Text>
       </View>
     </View>
   );

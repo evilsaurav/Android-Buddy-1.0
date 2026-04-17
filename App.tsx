@@ -10,6 +10,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import SplashScreen from './screens/SplashScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
@@ -37,6 +38,28 @@ import { COLORS, SHADOWS } from './lib/theme';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+function TabBarAnimatedIcon({ name, color, focused }: { name: any; color: string; focused: boolean }) {
+  const scale = useSharedValue(focused ? 1.1 : 1);
+
+  React.useEffect(() => {
+    scale.value = withSpring(focused ? 1.15 : 1, {
+      damping: 12,
+      stiffness: 220,
+    });
+  }, [focused]);
+
+  const iconStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View style={[iconStyle, styles.tabIconWrap]}>
+      <Ionicons name={name} size={22} color={color} />
+      {focused ? <View style={styles.tabIconActiveDot} /> : null}
+    </Animated.View>
+  );
+}
+
 function TabNavigator() {
   return (
     <Tab.Navigator
@@ -45,11 +68,11 @@ function TabNavigator() {
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any;
           if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
-          else if (route.name === 'RoadmapTab') iconName = focused ? 'map' : 'map-outline';
-          else if (route.name === 'BacklogTab') iconName = focused ? 'alert-circle' : 'alert-circle-outline';
-          else if (route.name === 'ExamTab') iconName = focused ? 'calendar' : 'calendar-outline';
-          else if (route.name === 'ProfileTab') iconName = focused ? 'person' : 'person-outline';
-          return <Ionicons name={iconName} size={22} color={color} />;
+          else if (route.name === 'RoadmapTab') iconName = focused ? 'compass' : 'compass-outline';
+          else if (route.name === 'BacklogTab') iconName = focused ? 'layers' : 'layers-outline';
+          else if (route.name === 'ExamTab') iconName = focused ? 'medal' : 'medal-outline';
+          else if (route.name === 'ProfileTab') iconName = focused ? 'person-circle' : 'person-circle-outline';
+          return <TabBarAnimatedIcon name={iconName} color={color} focused={focused} />;
         },
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textMuted,
@@ -197,5 +220,16 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     color: COLORS.textSecondary,
+  },
+  tabIconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabIconActiveDot: {
+    marginTop: 2,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: COLORS.primary,
   },
 });

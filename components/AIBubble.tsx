@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
 
 interface Props {
@@ -17,16 +18,29 @@ const TYPE_CONFIG = {
 
 export default function AIBubble({ message, type }: Props) {
   const config = TYPE_CONFIG[type];
+  const pulse = useSharedValue(1);
+
+  React.useEffect(() => {
+    pulse.value = withRepeat(withTiming(1.12, { duration: 900 }), -1, true);
+  }, []);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+  }));
+
   return (
-    <View style={[styles.container, { backgroundColor: config.bg, borderLeftColor: config.border }]}>
+    <Animated.View
+      entering={FadeInDown.duration(450)}
+      style={[styles.container, { backgroundColor: config.bg, borderLeftColor: config.border }]}
+    >
       <View style={styles.header}>
-        <View style={[styles.aiAvatar, { backgroundColor: config.border + '20' }]}>
-          <Ionicons name="sparkles" size={14} color={config.iconColor} />
-        </View>
+        <Animated.View style={[styles.aiAvatar, { backgroundColor: config.border + '20' }, pulseStyle]}>
+          <Ionicons name={config.icon} size={14} color={config.iconColor} />
+        </Animated.View>
         <Text style={styles.aiLabel}>BCA Buddy AI</Text>
       </View>
       <Text style={styles.message}>{message}</Text>
-    </View>
+    </Animated.View>
   );
 }
 

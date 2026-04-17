@@ -32,6 +32,13 @@ interface ProfileData {
 
 const STORAGE_KEY = '@bcabuddy_profile';
 
+const withAvatarCacheBuster = (uri: string): string => {
+  const value = String(uri || '').trim();
+  if (!/^https?:\/\//i.test(value)) return value;
+  const separator = value.includes('?') ? '&' : '?';
+  return `${value}${separator}av=${Date.now()}`;
+};
+
 export default function EditProfileScreen({ navigation }: Props) {
   const { sessionMode, profile: authProfile, refreshProfile } = useAuth();
   const [profile, setProfile] = useState<ProfileData>({
@@ -48,6 +55,7 @@ export default function EditProfileScreen({ navigation }: Props) {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
   const [changingPassword, setChangingPassword] = useState(false);
 
@@ -59,6 +67,7 @@ export default function EditProfileScreen({ navigation }: Props) {
     if (sessionMode === 'authenticated' && authProfile) {
       const examSessionRaw = String(authProfile.exam_session || '').trim();
       const sessionSemMatch = examSessionRaw.match(/sem\s*(\d+)/i);
+      const remoteAvatar = String(authProfile.profile_picture_url || authProfile.profile_pic_url || '').trim();
       setProfile((prev) => ({
         ...prev,
         name: String(authProfile.display_name || authProfile.username || prev.name),
@@ -66,8 +75,9 @@ export default function EditProfileScreen({ navigation }: Props) {
         semester: sessionSemMatch?.[1] || String(authProfile.semester || prev.semester),
         phone: String(authProfile.mobile_number || prev.phone),
         examDate: String(authProfile.exam_date || prev.examDate),
-        avatarUri: String(authProfile.profile_picture_url || prev.avatarUri),
+        avatarUri: remoteAvatar ? withAvatarCacheBuster(remoteAvatar) : prev.avatarUri,
       }));
+      setAvatarLoadFailed(false);
       return;
     }
 
@@ -139,6 +149,7 @@ export default function EditProfileScreen({ navigation }: Props) {
       const localUri = picked.assets[0].uri;
 
       setProfile((prev) => ({ ...prev, avatarUri: localUri }));
+      setAvatarLoadFailed(false);
       setHasChanges(true);
 
       if (sessionMode === 'authenticated') {
@@ -146,9 +157,14 @@ export default function EditProfileScreen({ navigation }: Props) {
         try {
           const uploadedUrl = await uploadProfilePictureWithBackend(localUri);
           if (uploadedUrl) {
-            setProfile((prev) => ({ ...prev, avatarUri: uploadedUrl }));
+            setProfile((prev) => ({ ...prev, avatarUri: withAvatarCacheBuster(uploadedUrl) }));
+            setAvatarLoadFailed(false);
           }
           await refreshProfile();
+          Alert.alert('Success', 'Profile photo updated successfully.');
+        } catch (error) {
+          const message = error instanceof Error ? error.message.trim() : '';
+          Alert.alert('Upload failed', message || 'Unable to update profile photo right now.');
         } finally {
           setUploadingAvatar(false);
         }
@@ -233,8 +249,12 @@ export default function EditProfileScreen({ navigation }: Props) {
           {/* Avatar */}
           <Animated.View entering={FadeInDown.delay(50).duration(400)} style={styles.avatarSection}>
             <View style={styles.avatar}>
-              {profile.avatarUri ? (
-                <Image source={{ uri: profile.avatarUri }} style={styles.avatarImage} />
+              {profile.avatarUri && !avatarLoadFailed ? (
+                <Image
+                  source={{ uri: profile.avatarUri }}
+                  style={styles.avatarImage}
+                  onError={() => setAvatarLoadFailed(true)}
+                />
               ) : (
                 <Ionicons name="person" size={44} color={COLORS.white} />
               )}

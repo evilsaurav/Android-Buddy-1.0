@@ -31,6 +31,10 @@ interface Props {
   navigation: any;
 }
 
+type ChatSendMode = 'auto' | ResponseMode;
+
+const CHAT_MODE_STORAGE_KEY = '@bcabuddy_chat_mode';
+
 const QUICK_PROMPTS = [
   '📚 Explain Data Structures',
   '📅 Study plan for this week',
@@ -48,7 +52,12 @@ const AI_RESPONSES: Record<string, string> = {
 
 export default function AIChatScreen({ navigation }: Props) {
   const { sessionMode } = useAuth();
-  const [effectiveResponseMode, setEffectiveResponseMode] = useState<ResponseMode>('thinking');
+  const [preferredResponseMode, setPreferredResponseMode] = useState<ResponseMode>('thinking');
+  const [frenzyOverride, setFrenzyOverride] = useState(false);
+  const [chatSendMode, setChatSendMode] = useState<ChatSendMode>('auto');
+  const [modeMenuVisible, setModeMenuVisible] = useState(false);
+  const [showQuickSuggestions, setShowQuickSuggestions] = useState(true);
+  const [privacyMode, setPrivacyMode] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '0',
@@ -114,26 +123,73 @@ export default function AIChatScreen({ navigation }: Props) {
 
   const loadChatPreferences = async () => {
     try {
-      const raw = await AsyncStorage.getItem('@bcabuddy_preferences');
-      if (!raw) {
-        setEffectiveResponseMode('thinking');
-        return;
+      const [rawPrefs, rawChatMode] = await Promise.all([
+        AsyncStorage.getItem('@bcabuddy_preferences'),
+        AsyncStorage.getItem(CHAT_MODE_STORAGE_KEY),
+      ]);
+
+      if (rawPrefs) {
+        const parsed = JSON.parse(rawPrefs) as Record<string, unknown>;
+        const frenzy = Boolean(parsed.frenzyModeOverride);
+        const modeRaw = String(parsed.responseMode || 'thinking');
+        const preferredMode: ResponseMode =
+          modeRaw === 'fast' || modeRaw === 'thinking' || modeRaw === 'pro' ? modeRaw : 'thinking';
+        const compactView = Boolean(parsed.compactView);
+        const privacy = Boolean(parsed.privacyMode);
+        setPreferredResponseMode(preferredMode);
+        setFrenzyOverride(frenzy);
+        setShowQuickSuggestions(!compactView);
+        setPrivacyMode(privacy);
+      } else {
+        setPreferredResponseMode('thinking');
+        setFrenzyOverride(false);
+        setShowQuickSuggestions(true);
+        setPrivacyMode(false);
       }
 
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const frenzy = Boolean(parsed.frenzyModeOverride);
-      const modeRaw = String(parsed.responseMode || 'thinking');
-      const preferredMode: ResponseMode =
-        modeRaw === 'fast' || modeRaw === 'thinking' || modeRaw === 'pro' ? modeRaw : 'thinking';
-
-      setEffectiveResponseMode(frenzy ? 'pro' : preferredMode);
+      const normalizedChatMode = String(rawChatMode || 'auto').toLowerCase();
+      if (normalizedChatMode === 'fast' || normalizedChatMode === 'thinking' || normalizedChatMode === 'pro' || normalizedChatMode === 'auto') {
+        setChatSendMode(normalizedChatMode as ChatSendMode);
+      } else {
+        setChatSendMode('auto');
+      }
     } catch {
-      setEffectiveResponseMode('thinking');
+      setPreferredResponseMode('thinking');
+      setFrenzyOverride(false);
+      setChatSendMode('auto');
+      setShowQuickSuggestions(true);
+      setPrivacyMode(false);
     }
+  };
+
+  const getEffectiveResponseMode = (): ResponseMode | undefined => {
+    if (frenzyOverride) return 'pro';
+    if (chatSendMode === 'auto') return undefined;
+    return chatSendMode;
+  };
+
+  const modeLabel = frenzyOverride
+    ? 'PRO (FRENZY OVERRIDE)'
+    : chatSendMode === 'auto'
+      ? `AUTO (${preferredResponseMode.toUpperCase()} DEFAULT)`
+      : chatSendMode.toUpperCase();
+
+  const setChatMode = async (mode: ChatSendMode) => {
+    setChatSendMode(mode);
+    try {
+      await AsyncStorage.setItem(CHAT_MODE_STORAGE_KEY, mode);
+    } catch {}
+    setModeMenuVisible(false);
   };
 
   const loadSessions = async () => {
     if (sessionMode !== 'authenticated') {
+      setSessions([]);
+      setActiveSessionId(undefined);
+      return;
+    }
+
+    if (privacyMode) {
       setSessions([]);
       setActiveSessionId(undefined);
       return;
@@ -205,7 +261,7 @@ export default function AIChatScreen({ navigation }: Props) {
 
   useEffect(() => {
     loadSessions();
-  }, [sessionMode]);
+  }, [sessionMode, privacyMode]);
 
   useEffect(() => {
     if (activeSessionId) {
@@ -315,14 +371,16 @@ export default function AIChatScreen({ navigation }: Props) {
 
     try {
       const backendReply = await chatWithBackend(text.trim(), {
-        sessionId: activeSessionId,
-        responseMode: effectiveResponseMode,
+        sessionId: privacyMode ? undefined : activeSessionId,
+        responseMode: getEffectiveResponseMode(),
       });
       await animateAssistantMessage(backendReply.text);
-      if (backendReply.sessionId) {
+      if (!privacyMode && backendReply.sessionId) {
         setActiveSessionId(backendReply.sessionId);
       }
-      loadSessions();
+      if (!privacyMode) {
+        loadSessions();
+      }
       setBackendOnline(true);
     } catch (err) {
       const apiErr = err as ApiError;
@@ -369,15 +427,42 @@ export default function AIChatScreen({ navigation }: Props) {
             <Text style={[styles.headerStatus, { color: backendOnline ? COLORS.success : COLORS.warning }]}>
               ● {backendOnline ? 'Azure Backend Online' : 'Offline Fallback Mode'}
             </Text>
-            <Text style={styles.headerModeText}>Mode: {effectiveResponseMode.toUpperCase()}</Text>
+            <Text style={styles.headerModeText}>Mode: {modeLabel}</Text>
+            {privacyMode ? <Text style={styles.headerPrivacyText}>Privacy mode active</Text> : null}
           </View>
         </View>
-        <TouchableOpacity style={styles.moreBtn}>
+        <TouchableOpacity style={styles.moreBtn} onPress={() => setModeMenuVisible(true)}>
           <Ionicons name="ellipsis-vertical" size={20} color={COLORS.textSecondary} />
         </TouchableOpacity>
       </View>
 
-      {sessionMode === 'authenticated' ? (
+      <Modal visible={modeMenuVisible} transparent animationType="fade" onRequestClose={() => setModeMenuVisible(false)}>
+        <View style={styles.renameOverlay}>
+          <View style={styles.renameCard}>
+            <Text style={styles.renameTitle}>Response Mode</Text>
+            <Text style={styles.modeHelper}>Chat menu default is Auto. Frenzy override forces Pro.</Text>
+            <View style={styles.modeGrid}>
+              {(['auto', 'fast', 'thinking', 'pro'] as ChatSendMode[]).map((mode) => {
+                const isActive = chatSendMode === mode;
+                return (
+                  <TouchableOpacity key={mode} style={[styles.modeChip, isActive && styles.modeChipActive]} onPress={() => setChatMode(mode)}>
+                    <Text style={[styles.modeChipText, isActive && styles.modeChipTextActive]}>
+                      {mode === 'auto' ? 'Auto' : mode[0].toUpperCase() + mode.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.renameActions}>
+              <TouchableOpacity style={styles.renameBtnCancel} onPress={() => setModeMenuVisible(false)}>
+                <Text style={styles.renameBtnCancelText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {sessionMode === 'authenticated' && !privacyMode ? (
         <View style={styles.sessionsWrap}>
           <View style={styles.sessionsHeader}>
             <Text style={styles.sessionsTitle}>Sessions</Text>
@@ -455,7 +540,7 @@ export default function AIChatScreen({ navigation }: Props) {
         ListFooterComponent={
           isLoadingHistory ? (
             <Text style={styles.loadingHistoryText}>Loading session history...</Text>
-          ) : messages.length === 1 ? (
+          ) : messages.length === 1 && showQuickSuggestions ? (
             <View style={styles.promptsSection}>
               <Text style={styles.promptsTitle}>Try asking:</Text>
               <View style={styles.promptsGrid}>
@@ -517,6 +602,7 @@ const styles = StyleSheet.create({
   headerTitle: { ...FONTS.bodyBold },
   headerStatus: { ...FONTS.small, color: COLORS.success, fontSize: 10 },
   headerModeText: { ...FONTS.small, color: COLORS.textSecondary, fontSize: 10, fontWeight: '700' },
+  headerPrivacyText: { ...FONTS.small, color: COLORS.warning, fontSize: 10, fontWeight: '700' },
   moreBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   sessionsWrap: {
     backgroundColor: COLORS.white,
@@ -644,6 +730,30 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   renameBtnSaveText: { ...FONTS.small, color: COLORS.white, fontWeight: '700' },
+  modeHelper: {
+    ...FONTS.small,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.md,
+  },
+  modeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  modeChip: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  modeChipActive: {
+    backgroundColor: COLORS.primary + '15',
+    borderColor: COLORS.primary + '35',
+  },
+  modeChipText: { ...FONTS.small, color: COLORS.textSecondary, fontWeight: '700' },
+  modeChipTextActive: { color: COLORS.primary },
   messagesList: { padding: SPACING.lg, paddingBottom: SPACING.xl },
   msgRow: { marginBottom: SPACING.md, flexDirection: 'row', alignItems: 'flex-end' },
   msgRowUser: { justifyContent: 'flex-end' },

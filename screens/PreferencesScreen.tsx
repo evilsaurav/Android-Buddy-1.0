@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { Alert, View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -57,6 +57,18 @@ export default function PreferencesScreen({ navigation }: Props) {
   }, [sessionMode]);
 
   const loadPrefs = async () => {
+    let storedPrefs: Preferences | null = null;
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        storedPrefs = JSON.parse(stored) as Preferences;
+      }
+    } catch {}
+
+    if (storedPrefs) {
+      setPrefs(storedPrefs);
+    }
+
     if (sessionMode === 'authenticated' && profile) {
       setPrefs((prev) => ({
         ...prev,
@@ -65,9 +77,7 @@ export default function PreferencesScreen({ navigation }: Props) {
         compactView: typeof profile.show_quick_suggestions === 'boolean' ? !profile.show_quick_suggestions : prev.compactView,
         privacyMode: typeof profile.privacy_mode === 'boolean' ? profile.privacy_mode : prev.privacyMode,
         responseMode:
-          profile.default_response_mode === 'fast' ||
-          profile.default_response_mode === 'thinking' ||
-          profile.default_response_mode === 'pro'
+          profile.default_response_mode === 'fast' || profile.default_response_mode === 'thinking'
             ? profile.default_response_mode
             : prev.responseMode,
         semesterPreference:
@@ -77,14 +87,10 @@ export default function PreferencesScreen({ navigation }: Props) {
       }));
       return;
     }
-
-    try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
-      if (stored) setPrefs(JSON.parse(stored));
-    } catch {}
   };
 
   const savePrefs = async (nextPrefs: Preferences) => {
+    const previousPrefs = prefs;
     setPrefs(nextPrefs);
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextPrefs));
@@ -102,7 +108,13 @@ export default function PreferencesScreen({ navigation }: Props) {
           exam_session: nextPrefs.semesterPreference,
         });
         await refreshProfile();
-      } catch {}
+      } catch {
+        setPrefs(previousPrefs);
+        try {
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(previousPrefs));
+        } catch {}
+        Alert.alert('Sync failed', 'Preferences could not be synced with backend. Local changes were reverted.');
+      }
     }
   };
 

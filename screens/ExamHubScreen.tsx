@@ -39,10 +39,16 @@ export default function ExamHubScreen({ navigation }: Props) {
   const [examQuestions, setExamQuestions] = useState<GeneratedQuestion[]>([]);
   const [examIndex, setExamIndex] = useState(0);
   const [examAnswers, setExamAnswers] = useState<Record<number, string>>({});
-  const [examTimeLeft, setExamTimeLeft] = useState(30 * 60);
+  const [examTimeLeft, setExamTimeLeft] = useState(45 * 60);
   const [examSubmitted, setExamSubmitted] = useState(false);
   const [examScore, setExamScore] = useState(0);
   const [examSummary, setExamSummary] = useState('');
+  const [examMarkedQuestions, setExamMarkedQuestions] = useState<number[]>([]);
+  const [examQuestionCount, setExamQuestionCount] = useState(15);
+  const semesterOptions = Array.from(new Set(SUBJECTS.map((s) => s.semester))).sort((a, b) => a - b);
+  const [selectedSemester, setSelectedSemester] = useState<number>(semesterOptions[0] || 1);
+  const subjectOptions = SUBJECTS.filter((s) => s.semester === selectedSemester);
+  const [selectedSubjectName, setSelectedSubjectName] = useState<string>(subjectOptions[0]?.name || SUBJECTS[0]?.name || '');
   const today = new Date();
   const currentMonth = today.getMonth();
   const currentYear = today.getFullYear();
@@ -65,8 +71,24 @@ export default function ExamHubScreen({ navigation }: Props) {
     ? CALENDAR_EVENTS.filter((e) => e.date === selectedDate)
     : [];
 
-  const primarySubject = examSubjects[0] || SUBJECTS[0];
-  const backendSubjectCode = resolveBackendSubjectCode(primarySubject?.name || '', primarySubject?.semester);
+  useEffect(() => {
+    if (!subjectOptions.some((s) => s.name === selectedSubjectName)) {
+      setSelectedSubjectName(subjectOptions[0]?.name || '');
+    }
+  }, [selectedSemester]);
+
+  const selectedSubject =
+    subjectOptions.find((s) => s.name === selectedSubjectName) ||
+    subjectOptions[0] ||
+    SUBJECTS[0];
+
+  const backendSubjectCode = resolveBackendSubjectCode(selectedSubject?.name || '', selectedSubject?.semester);
+
+  const getExamDurationSeconds = (count: number) => {
+    if (count >= 30) return 90 * 60;
+    if (count >= 20) return 60 * 60;
+    return 45 * 60;
+  };
 
   useEffect(() => {
     if (!examModeVisible || examSubmitted) return;
@@ -91,7 +113,7 @@ export default function ExamHubScreen({ navigation }: Props) {
 
     try {
       setLoadingTool('quiz');
-      const items = await generateQuizWithBackend(primarySubject.name, primarySubject.semester, 10);
+      const items = await generateQuizWithBackend(selectedSubject.name, selectedSubject.semester, 10);
       setGeneratedTitle(`Generated Quiz • ${backendSubjectCode}`);
       setGeneratedItems(items);
     } catch {
@@ -111,7 +133,7 @@ export default function ExamHubScreen({ navigation }: Props) {
 
     try {
       setLoadingTool('exam');
-      const items = await generateExamWithBackend(primarySubject.name, primarySubject.semester, 8, 2);
+      const items = await generateExamWithBackend(selectedSubject.name, selectedSubject.semester, 8, 2);
       setGeneratedTitle(`Generated Mixed Exam • ${backendSubjectCode}`);
       setGeneratedItems(items);
     } catch {
@@ -134,23 +156,35 @@ export default function ExamHubScreen({ navigation }: Props) {
       setExamScore(0);
       setExamSummary('');
       setExamAnswers({});
+      setExamMarkedQuestions([]);
       setExamIndex(0);
 
-      let items = await generateExamWithBackend(primarySubject.name, primarySubject.semester, 20, 0);
-      let mcqOnly = items.filter((q) => Array.isArray(q.options) && q.options.length >= 2);
+      const targetCount = examQuestionCount;
+      const minimumRequired = 10;
+      const validMcq = (q: GeneratedQuestion) => {
+        const options = Array.isArray(q.options)
+          ? q.options.map((o) => String(o || '').trim()).filter(Boolean)
+          : [];
+        const uniqueOptions = Array.from(new Set(options));
+        const correct = String(q.correct_answer || '').trim();
+        return uniqueOptions.length >= 4 && !!correct;
+      };
 
-      if (mcqOnly.length < 10) {
-        items = await generateQuizWithBackend(primarySubject.name, primarySubject.semester, 20);
-        mcqOnly = items.filter((q) => Array.isArray(q.options) && q.options.length >= 2);
+      let items = await generateExamWithBackend(selectedSubject.name, selectedSubject.semester, targetCount, 0);
+      let mcqOnly = items.filter(validMcq);
+
+      if (mcqOnly.length < minimumRequired) {
+        items = await generateQuizWithBackend(selectedSubject.name, selectedSubject.semester, targetCount);
+        mcqOnly = items.filter(validMcq);
       }
 
-      if (!mcqOnly.length) {
-        setGeneratedTitle('Could not start exam mode right now. Try again.');
+      if (mcqOnly.length < minimumRequired) {
+        setGeneratedTitle('Exam mode needs at least 10 valid MCQ questions. Please retry.');
         return;
       }
 
-      setExamQuestions(mcqOnly.slice(0, 20));
-      setExamTimeLeft(30 * 60);
+      setExamQuestions(mcqOnly.slice(0, targetCount));
+  setExamTimeLeft(getExamDurationSeconds(targetCount));
       setExamModeVisible(true);
     } catch {
       setGeneratedTitle('Unable to load exam mode right now');
@@ -195,8 +229,16 @@ export default function ExamHubScreen({ navigation }: Props) {
     setExamQuestions([]);
     setExamAnswers({});
     setExamIndex(0);
+    setExamMarkedQuestions([]);
     setExamSubmitted(false);
     setExamSummary('');
+  };
+
+  const toggleMarkCurrentQuestion = () => {
+    if (examSubmitted) return;
+    setExamMarkedQuestions((prev) =>
+      prev.includes(examIndex) ? prev.filter((idx) => idx !== examIndex) : [...prev, examIndex]
+    );
   };
 
   const runSubjectiveGrading = async () => {
@@ -216,7 +258,7 @@ export default function ExamHubScreen({ navigation }: Props) {
         question: subjectiveQuestion.trim(),
         answer: subjectiveAnswer.trim(),
         subject: backendSubjectCode,
-        semester: primarySubject?.semester || 1,
+        semester: selectedSubject?.semester || 1,
         max_marks: 10,
       });
       setGradingResult(JSON.stringify(result, null, 2));
@@ -242,7 +284,7 @@ export default function ExamHubScreen({ navigation }: Props) {
           options: item.options,
           correct_answer: item.correct_answer || item.options[0],
           subject: backendSubjectCode,
-          semester: primarySubject?.semester,
+          semester: selectedSubject?.semester,
         });
       } else {
         response = await explainQuestionWithBackend({
@@ -410,12 +452,60 @@ export default function ExamHubScreen({ navigation }: Props) {
         {/* Quick Prep Tools */}
         <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.section}>
           <Text style={styles.sectionTitle}>🛠️ Prep Tools</Text>
-          <Text style={styles.toolSubtext}>Live generation subject: {primarySubject?.name || 'N/A'} {'->'} {backendSubjectCode}</Text>
+          <View style={styles.setupCard}>
+            <Text style={styles.setupLabel}>Semester</Text>
+            <View style={styles.selectorRow}>
+              {semesterOptions.map((sem) => (
+                <TouchableOpacity
+                  key={sem}
+                  style={[styles.selectorChip, selectedSemester === sem && styles.selectorChipActive]}
+                  onPress={() => setSelectedSemester(sem)}
+                >
+                  <Text style={[styles.selectorChipText, selectedSemester === sem && styles.selectorChipTextActive]}>
+                    Sem {sem}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.setupLabel}>Subject</Text>
+            <View style={styles.selectorRow}>
+              {subjectOptions.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.selectorChip, selectedSubjectName === s.name && styles.selectorChipActive]}
+                  onPress={() => setSelectedSubjectName(s.name)}
+                >
+                  <Text style={[styles.selectorChipText, selectedSubjectName === s.name && styles.selectorChipTextActive]}>
+                    {resolveBackendSubjectCode(s.name, s.semester)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.questionCountRow}>
+              <Text style={styles.setupLabel}>Questions</Text>
+              <View style={styles.selectorRow}>
+                {[10, 15, 20, 30].map((count) => (
+                  <TouchableOpacity
+                    key={count}
+                    style={[styles.selectorChip, examQuestionCount === count && styles.selectorChipActive]}
+                    onPress={() => setExamQuestionCount(count)}
+                  >
+                    <Text style={[styles.selectorChipText, examQuestionCount === count && styles.selectorChipTextActive]}>
+                      {count}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+          <Text style={styles.toolSubtext}>Live generation subject: {selectedSubject?.name || 'N/A'} {'->'} {backendSubjectCode}</Text>
           <View style={styles.toolsGrid}>
             {[
               { icon: 'document-text', label: 'Generate Quiz', color: '#4A6CF7', desc: loadingTool === 'quiz' ? 'Generating...' : '10 MCQs', action: createQuiz },
               { icon: 'help-circle', label: 'Generate Exam', color: '#06B6D4', desc: loadingTool === 'exam' ? 'Generating...' : '8 MCQ + 2 subjective', action: createMixedExam },
-              { icon: 'timer-outline', label: 'Exam Mode', color: '#16A34A', desc: loadingTool === 'exam' ? 'Preparing...' : '30 min timed test', action: startExamMode },
+              { icon: 'timer-outline', label: 'Exam Mode', color: '#16A34A', desc: loadingTool === 'exam' ? 'Preparing...' : `${Math.floor(getExamDurationSeconds(examQuestionCount) / 60)} min timed test`, action: startExamMode },
               { icon: 'bookmark', label: 'Formulas', color: '#F59E0B', desc: 'Quick reference' },
             ].map((tool, i) => (
               <TouchableOpacity key={i} style={styles.toolCard} activeOpacity={0.7} onPress={() => tool.action?.()}>
@@ -501,6 +591,9 @@ export default function ExamHubScreen({ navigation }: Props) {
             <View style={{ flex: 1 }}>
               <Text style={styles.examModeTitle}>Exam Mode • {backendSubjectCode}</Text>
               <Text style={styles.examModeSub}>Question {Math.min(examIndex + 1, Math.max(examQuestions.length, 1))}/{Math.max(examQuestions.length, 1)}</Text>
+              <Text style={styles.examModeMeta}>
+                Answered {Object.keys(examAnswers).length}/{examQuestions.length} • Marked {examMarkedQuestions.length}
+              </Text>
             </View>
             <View style={[styles.timerBadge, examTimeLeft < 300 && styles.timerBadgeWarn]}>
               <Ionicons name="time-outline" size={14} color={examTimeLeft < 300 ? COLORS.danger : COLORS.primary} />
@@ -526,6 +619,43 @@ export default function ExamHubScreen({ navigation }: Props) {
                   );
                 })}
               </ScrollView>
+
+              <View style={styles.navigatorWrap}>
+                <View style={styles.navigatorHeaderRow}>
+                  <Text style={styles.navigatorTitle}>Question Navigator</Text>
+                  <TouchableOpacity style={styles.markBtn} onPress={toggleMarkCurrentQuestion} disabled={examSubmitted}>
+                    <Ionicons
+                      name={examMarkedQuestions.includes(examIndex) ? 'bookmark' : 'bookmark-outline'}
+                      size={14}
+                      color={COLORS.warning}
+                    />
+                    <Text style={styles.markBtnText}>
+                      {examMarkedQuestions.includes(examIndex) ? 'Marked' : 'Mark for review'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.navigatorGrid}>
+                  {examQuestions.map((_, idx) => {
+                    const answered = Boolean(examAnswers[idx]);
+                    const marked = examMarkedQuestions.includes(idx);
+                    return (
+                      <TouchableOpacity
+                        key={`nav-${idx}`}
+                        style={[
+                          styles.navChip,
+                          idx === examIndex && styles.navChipCurrent,
+                          answered && styles.navChipAnswered,
+                          marked && styles.navChipMarked,
+                        ]}
+                        onPress={() => setExamIndex(idx)}
+                        disabled={examSubmitted}
+                      >
+                        <Text style={[styles.navChipText, idx === examIndex && styles.navChipTextCurrent]}>{idx + 1}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
 
               {examSubmitted ? (
                 <View style={styles.examResultBox}>
@@ -630,6 +760,43 @@ const styles = StyleSheet.create({
   examStatText: { ...FONTS.small },
   toolsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md },
   toolSubtext: { ...FONTS.small, color: COLORS.textSecondary, marginTop: -SPACING.sm, marginBottom: SPACING.md },
+  setupCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  setupLabel: {
+    ...FONTS.small,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
+    fontWeight: '700',
+  },
+  selectorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+    marginBottom: SPACING.sm,
+  },
+  questionCountRow: {
+    marginBottom: SPACING.xs,
+  },
+  selectorChip: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  selectorChipActive: {
+    backgroundColor: COLORS.primary + '15',
+    borderColor: COLORS.primary + '35',
+  },
+  selectorChipText: { ...FONTS.small, color: COLORS.textSecondary, fontWeight: '700' },
+  selectorChipTextActive: { color: COLORS.primary },
   toolCard: {
     width: '47%', backgroundColor: COLORS.white, borderRadius: RADIUS.xl,
     padding: SPACING.lg, ...SHADOWS.sm,
@@ -721,6 +888,7 @@ const styles = StyleSheet.create({
   },
   examModeTitle: { ...FONTS.bodyBold, color: COLORS.text },
   examModeSub: { ...FONTS.small, color: COLORS.textSecondary, marginTop: 2 },
+  examModeMeta: { ...FONTS.small, color: COLORS.textMuted, marginTop: 2 },
   timerBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -761,6 +929,62 @@ const styles = StyleSheet.create({
   },
   examOptionText: { ...FONTS.body, color: COLORS.textSecondary },
   examOptionTextSelected: { color: COLORS.primary, fontWeight: '700' },
+  navigatorWrap: {
+    marginTop: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.white,
+    padding: SPACING.sm,
+  },
+  navigatorHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
+  },
+  navigatorTitle: { ...FONTS.small, color: COLORS.textSecondary, fontWeight: '700' },
+  markBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: COLORS.warning + '35',
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    backgroundColor: COLORS.warningLight,
+  },
+  markBtnText: { ...FONTS.small, color: COLORS.warning, fontWeight: '700' },
+  navigatorGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+  },
+  navChip: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  navChipCurrent: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary + '15',
+  },
+  navChipAnswered: {
+    borderColor: COLORS.success + '45',
+    backgroundColor: COLORS.successLight,
+  },
+  navChipMarked: {
+    borderColor: COLORS.warning + '55',
+    backgroundColor: COLORS.warningLight,
+  },
+  navChipText: { ...FONTS.small, color: COLORS.textSecondary, fontWeight: '700' },
+  navChipTextCurrent: { color: COLORS.primary },
   examActionsRow: {
     marginTop: SPACING.md,
     flexDirection: 'row',
