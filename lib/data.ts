@@ -141,6 +141,39 @@ export const SUBJECTS: Subject[] = [
       { id: 't65', name: 'Deployment', completed: false, difficulty: 'easy', estimatedHours: 2 },
     ],
   },
+  {
+    id: '7', name: 'Computer Basics (BCS-011)', semester: 1, progress: 0.90, totalTopics: 5, completedTopics: 4,
+    icon: 'desktop-outline', color: '#3B82F6', isBacklog: false,
+    topics: [
+      { id: 't66', name: 'Computer Hardware', completed: true, difficulty: 'easy', estimatedHours: 2 },
+      { id: 't67', name: 'Software Concepts', completed: true, difficulty: 'easy', estimatedHours: 2 },
+      { id: 't68', name: 'Memory', completed: true, difficulty: 'easy', estimatedHours: 2 },
+      { id: 't69', name: 'Internet Basics', completed: true, difficulty: 'easy', estimatedHours: 2 },
+      { id: 't70', name: 'Cyber Security', completed: false, difficulty: 'medium', estimatedHours: 3 },
+    ],
+  },
+  {
+    id: '8', name: 'Software Engineering (BCS-051)', semester: 5, progress: 0.10, totalTopics: 6, completedTopics: 1,
+    icon: 'construct-outline', color: '#EC4899', isBacklog: false,
+    topics: [
+      { id: 't71', name: 'SDLC', completed: true, difficulty: 'medium', estimatedHours: 3 },
+      { id: 't72', name: 'Agile Methodology', completed: false, difficulty: 'medium', estimatedHours: 4 },
+      { id: 't73', name: 'Requirements Engineering', completed: false, difficulty: 'hard', estimatedHours: 5 },
+      { id: 't74', name: 'UML Diagrams', completed: false, difficulty: 'hard', estimatedHours: 6 },
+      { id: 't75', name: 'Testing', completed: false, difficulty: 'medium', estimatedHours: 4 },
+      { id: 't76', name: 'Maintenance', completed: false, difficulty: 'easy', estimatedHours: 2 },
+    ],
+  },
+  {
+    id: '9', name: 'E-Commerce (BCS-062)', semester: 6, progress: 0.0, totalTopics: 4, completedTopics: 0,
+    icon: 'cart-outline', color: '#8B5CF6', isBacklog: false,
+    topics: [
+      { id: 't77', name: 'E-Commerce Models', completed: false, difficulty: 'easy', estimatedHours: 3 },
+      { id: 't78', name: 'Payment Gateways', completed: false, difficulty: 'medium', estimatedHours: 4 },
+      { id: 't79', name: 'Security in E-Commerce', completed: false, difficulty: 'hard', estimatedHours: 5 },
+      { id: 't80', name: 'Digital Marketing', completed: false, difficulty: 'medium', estimatedHours: 4 },
+    ],
+  },
 ];
 
 export const CALENDAR_EVENTS: CalendarEvent[] = [

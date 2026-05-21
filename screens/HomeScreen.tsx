@@ -152,6 +152,7 @@ export default function HomeScreen({ navigation }: Props) {
         topSubjects,
         recent,
         activeDays,
+        avgQuizScore: dashboardStats.avg_quiz_score || 0,
       };
     }
 
@@ -163,6 +164,7 @@ export default function HomeScreen({ navigation }: Props) {
       topSubjects,
       recent: sortedRecent.slice(0, 5),
       activeDays,
+      avgQuizScore: 0,
     };
   }, [history, subjectMatchers, dashboardStats, sessionMode]);
 
@@ -225,8 +227,8 @@ export default function HomeScreen({ navigation }: Props) {
             <Text style={styles.statLabel}>Active Days</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>{analytics.lastSubject}</Text>
-            <Text style={styles.statLabel}>Focus</Text>
+            <Text style={styles.statValue}>{Math.round(analytics.avgQuizScore)}%</Text>
+            <Text style={styles.statLabel}>Avg Score</Text>
           </View>
         </Animated.View>
 

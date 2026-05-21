@@ -326,7 +326,7 @@ export default function RoadmapScreen({ navigation }: Props) {
                     <Ionicons name={subject.progress >= 1 ? 'checkmark' : 'ellipse'} size={12} color={COLORS.white} />
                   </View>
                   {index < allSubjects.length - 1 && (
-                    <View style={[styles.timelineLine, { backgroundColor: subject.color + '30' }]} />
+                    <View style={[styles.timelineLine, { backgroundColor: subject.progress >= 1 ? subject.color : subject.color + '40' }]} />
                   )}
                 </View>
                 <View style={styles.roadmapContent}>
@@ -512,16 +512,16 @@ const styles = StyleSheet.create({
   historyName: { ...FONTS.small, color: COLORS.text },
   historyMeta: { ...FONTS.small, color: COLORS.textSecondary },
   listContent: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
-  roadmapCard: { flexDirection: 'row', marginBottom: SPACING.md },
+  roadmapCard: { flexDirection: 'row' },
   timeline: { alignItems: 'center', marginRight: SPACING.lg, width: 28 },
   timelineDot: {
     width: 28, height: 28, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center', zIndex: 1,
   },
-  timelineLine: { width: 2, flex: 1, marginTop: -2 },
+  timelineLine: { width: 2, flex: 1 },
   roadmapContent: {
     flex: 1, backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
-    padding: SPACING.lg, ...SHADOWS.sm,
+    padding: SPACING.lg, marginBottom: SPACING.xl, ...SHADOWS.sm,
   },
   roadmapHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md },
   roadmapIcon: { width: 40, height: 40, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },

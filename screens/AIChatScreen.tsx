@@ -63,6 +63,7 @@ export default function AIChatScreen({ navigation }: Props) {
   const [modeMenuVisible, setModeMenuVisible] = useState(false);
   const [showQuickSuggestions, setShowQuickSuggestions] = useState(true);
   const [privacyMode, setPrivacyMode] = useState(false);
+  const [activeTool, setActiveTool] = useState<string>('General');
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '0',
@@ -402,6 +403,7 @@ export default function AIChatScreen({ navigation }: Props) {
         sessionId: privacyMode ? undefined : activeSessionId,
         responseMode: getEffectiveResponseMode(),
         frenzyMode: frenzyOverride || frenzyActive,
+        activeTool: activeTool !== 'General' ? activeTool : undefined,
       });
       if (backendReply.backendMode) {
         setBackendMode(backendReply.backendMode);
@@ -610,6 +612,15 @@ export default function AIChatScreen({ navigation }: Props) {
 
       {/* Input */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 80}>
+        <View style={styles.toolsWrapper}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolsScroll}>
+            {['General', 'PYQs', 'Assignments', 'Notes', 'Viva'].map(tool => (
+              <TouchableOpacity key={tool} style={[styles.toolChip, activeTool === tool && styles.toolChipActive]} onPress={() => setActiveTool(tool)}>
+                <Text style={[styles.toolChipText, activeTool === tool && styles.toolChipTextActive]}>{tool}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
         <View style={styles.inputBar}>
           <TextInput
             style={styles.input}
@@ -849,9 +860,39 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: COLORS.border,
   },
   promptText: { ...FONTS.caption, fontWeight: '500', color: COLORS.text },
+  toolsWrapper: {
+    backgroundColor: COLORS.card,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  toolsScroll: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.xs,
+  },
+  toolChip: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+  toolChipActive: {
+    backgroundColor: COLORS.primary + '15',
+    borderColor: COLORS.primary + '50',
+  },
+  toolChipText: {
+    ...FONTS.small,
+    color: COLORS.textSecondary,
+    fontWeight: '700',
+  },
+  toolChipTextActive: {
+    color: COLORS.primary,
+  },
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', padding: SPACING.md,
-    backgroundColor: COLORS.card, borderTopWidth: 1, borderTopColor: COLORS.border,
+    backgroundColor: COLORS.card,
   },
   input: {
     flex: 1, backgroundColor: COLORS.background, borderRadius: RADIUS.xl,

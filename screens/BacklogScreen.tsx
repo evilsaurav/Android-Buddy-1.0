@@ -186,9 +186,10 @@ const styles = StyleSheet.create({
   aiStepHours: { ...FONTS.caption, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
   backlogCard: {
     flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
-    overflow: 'hidden', marginBottom: SPACING.md, ...SHADOWS.md,
+    overflow: 'hidden', marginBottom: SPACING.lg, ...SHADOWS.md,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
   },
-  backlogStripe: { width: 4 },
+  backlogStripe: { width: 6 },
   backlogContent: { flex: 1, padding: SPACING.lg },
   backlogTop: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md },
   backlogIcon: { width: 40, height: 40, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
@@ -203,7 +204,8 @@ const styles = StyleSheet.create({
   backlogMetaText: { ...FONTS.small },
   riskCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card,
-    borderRadius: RADIUS.lg, padding: SPACING.lg, marginBottom: SPACING.sm, ...SHADOWS.sm,
+    borderRadius: RADIUS.xl, padding: SPACING.lg, marginBottom: SPACING.md, ...SHADOWS.md,
+    borderWidth: 1, borderColor: COLORS.warning + '40',
   },
   riskIcon: { width: 40, height: 40, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
   riskInfo: { flex: 1, marginLeft: SPACING.md },

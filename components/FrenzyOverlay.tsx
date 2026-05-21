@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFrenzy } from '../context/FrenzyContext';
 import { COLORS, FONTS, RADIUS, SPACING } from '../lib/theme';
@@ -53,7 +53,9 @@ export default function FrenzyOverlay() {
     <View style={styles.overlay} pointerEvents="auto">
       <SafeAreaView style={[styles.content, { backgroundColor: palette.bg }]} edges={['top', 'bottom']}>
         <View style={styles.messageWrap}>
-          <Text style={[styles.title, { color: palette.text }]}>{typed || '...'}</Text>
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <Text style={[styles.title, { color: palette.text }]}>{typed || '...'}</Text>
+          </ScrollView>
         </View>
         <TouchableOpacity style={styles.exitBtn} onPress={clearFrenzy}>
           <View style={[styles.exitPill, { borderColor: palette.accent }]}> 
@@ -79,7 +81,11 @@ const styles = StyleSheet.create({
   },
   messageWrap: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
+    paddingVertical: SPACING.md,
   },
   title: {
     ...FONTS.h2,
