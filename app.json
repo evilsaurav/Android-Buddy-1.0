@@ -5,6 +5,7 @@
     "icon": "./assets/bcabuudy-icon.png",
     "android": {
       "package": "com.anonymous.placeholdermodel2",
+      "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "foregroundImage": "./assets/bcabuudy-icon.png",
         "backgroundColor": "#14213D"

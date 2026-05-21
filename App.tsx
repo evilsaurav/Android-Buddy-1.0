@@ -4,11 +4,11 @@ import { useFonts } from 'expo-font';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
@@ -65,11 +65,24 @@ function TabBarAnimatedIcon({ name, color, focused }: { name: any; color: string
   );
 }
 
+function FloatingChatButton() {
+  const navigation = useNavigation<any>();
+  return (
+    <TouchableOpacity
+      style={styles.fab}
+      onPress={() => navigation.navigate('AIChat')}
+    >
+      <Ionicons name="chatbubbles" size={24} color={COLORS.white} />
+    </TouchableOpacity>
+  );
+}
+
 function TabNavigator() {
   return (
-    <Tab.Navigator
-      id="MainTabNavigator"
-      screenOptions={({ route }) => ({
+    <View style={{ flex: 1 }}>
+      <Tab.Navigator
+        id="MainTabNavigator"
+        screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any;
@@ -102,7 +115,9 @@ function TabNavigator() {
       <Tab.Screen name="BacklogTab" component={BacklogScreen} options={{ tabBarLabel: 'Backlogs' }} />
       <Tab.Screen name="ExamTab" component={ExamHubScreen} options={{ tabBarLabel: 'Preparation' }} />
       <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ tabBarLabel: 'Profile' }} />
-    </Tab.Navigator>
+      </Tab.Navigator>
+      <FloatingChatButton />
+    </View>
   );
 }
 
@@ -243,5 +258,17 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 3,
     backgroundColor: COLORS.primary,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 100 : 80,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.lg,
   },
 });

@@ -580,8 +580,8 @@ export default function AIChatScreen({ navigation }: Props) {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 20}
       >
       {/* Messages */}
       <FlatList
