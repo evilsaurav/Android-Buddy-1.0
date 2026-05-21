@@ -365,7 +365,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md,
   },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
+  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
   headerTitle: { ...FONTS.h3 },
   saveBtn: { paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm, backgroundColor: COLORS.primary, borderRadius: RADIUS.full },
   saveBtnDisabled: { backgroundColor: COLORS.border },
@@ -381,7 +381,7 @@ const styles = StyleSheet.create({
   changePhotoBtn: { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.md, gap: SPACING.xs },
   changePhotoText: { ...FONTS.bodyBold, fontSize: 13, color: COLORS.primary },
   formCard: {
-    backgroundColor: COLORS.white, borderRadius: RADIUS.xl, padding: SPACING.xl,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.xl,
     marginBottom: SPACING.lg, ...SHADOWS.sm,
   },
   formSectionTitle: { ...FONTS.bodyBold, color: COLORS.primary, marginBottom: SPACING.lg, fontSize: 14, textTransform: 'uppercase', letterSpacing: 0.5 },
@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
     ...FONTS.body, color: COLORS.text,
   },
   dangerCard: {
-    backgroundColor: COLORS.white, borderRadius: RADIUS.xl, padding: SPACING.xl,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.xl,
     borderWidth: 1, borderColor: COLORS.danger + '30',
   },
   dangerTitle: { ...FONTS.bodyBold, color: COLORS.danger, marginBottom: SPACING.lg },

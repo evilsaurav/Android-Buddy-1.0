@@ -29,9 +29,14 @@ import OfflineDataScreen from './screens/OfflineDataScreen';
 import PrivacyScreen from './screens/PrivacyScreen';
 import HelpSupportScreen from './screens/HelpSupportScreen';
 import RateUsScreen from './screens/RateUsScreen';
+import ExamSessionScreen from './screens/ExamSessionScreen';
+import ExamScreen from './screens/ExamScreen';
+import QuizScreen from './screens/QuizScreen';
 import AuthScreen from './screens/AuthScreen';
 import ProductionToolsScreen from './screens/ProductionToolsScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { FrenzyProvider } from './context/FrenzyContext';
+import FrenzyOverlay from './components/FrenzyOverlay';
 
 import { COLORS, SHADOWS } from './lib/theme';
 
@@ -63,6 +68,7 @@ function TabBarAnimatedIcon({ name, color, focused }: { name: any; color: string
 function TabNavigator() {
   return (
     <Tab.Navigator
+      id="MainTabNavigator"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused, color, size }) => {
@@ -70,7 +76,7 @@ function TabNavigator() {
           if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
           else if (route.name === 'RoadmapTab') iconName = focused ? 'compass' : 'compass-outline';
           else if (route.name === 'BacklogTab') iconName = focused ? 'layers' : 'layers-outline';
-          else if (route.name === 'ExamTab') iconName = focused ? 'medal' : 'medal-outline';
+          else if (route.name === 'ExamTab') iconName = focused ? 'school' : 'school-outline';
           else if (route.name === 'ProfileTab') iconName = focused ? 'person-circle' : 'person-circle-outline';
           return <TabBarAnimatedIcon name={iconName} color={color} focused={focused} />;
         },
@@ -94,7 +100,7 @@ function TabNavigator() {
       <Tab.Screen name="HomeTab" component={HomeScreen} options={{ tabBarLabel: 'Home' }} />
       <Tab.Screen name="RoadmapTab" component={RoadmapScreen} options={{ tabBarLabel: 'Roadmap' }} />
       <Tab.Screen name="BacklogTab" component={BacklogScreen} options={{ tabBarLabel: 'Backlogs' }} />
-      <Tab.Screen name="ExamTab" component={ExamHubScreen} options={{ tabBarLabel: 'Exams' }} />
+      <Tab.Screen name="ExamTab" component={ExamHubScreen} options={{ tabBarLabel: 'Preparation' }} />
       <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ tabBarLabel: 'Profile' }} />
     </Tab.Navigator>
   );
@@ -183,7 +189,7 @@ function AppNavigator() {
     <SafeAreaProvider>
       <NavigationContainer>
         <StatusBar style="dark" />
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Navigator id="RootStackNavigator" screenOptions={{ headerShown: false }}>
           <Stack.Screen name="MainTabs" component={TabNavigator} />
           <Stack.Screen name="SubjectDetail" component={SubjectDetailScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="AIChat" component={AIChatScreen} options={{ animation: 'slide_from_bottom' }} />
@@ -196,6 +202,9 @@ function AppNavigator() {
           <Stack.Screen name="HelpSupport" component={HelpSupportScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ProductionTools" component={ProductionToolsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="RateUs" component={RateUsScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ExamSession" component={ExamSessionScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ExamScreen" component={ExamScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="QuizScreen" component={QuizScreen} options={{ animation: 'slide_from_right' }} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
@@ -205,7 +214,10 @@ function AppNavigator() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppNavigator />
+      <FrenzyProvider>
+        <AppNavigator />
+        <FrenzyOverlay />
+      </FrenzyProvider>
     </AuthProvider>
   );
 }

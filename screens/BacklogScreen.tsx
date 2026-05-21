@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
   aiStepTask: { ...FONTS.bodyBold, color: COLORS.white, marginTop: 2 },
   aiStepHours: { ...FONTS.caption, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
   backlogCard: {
-    flexDirection: 'row', backgroundColor: COLORS.white, borderRadius: RADIUS.xl,
+    flexDirection: 'row', backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     overflow: 'hidden', marginBottom: SPACING.md, ...SHADOWS.md,
   },
   backlogStripe: { width: 4 },
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   backlogMeta: { flexDirection: 'row', justifyContent: 'space-between' },
   backlogMetaText: { ...FONTS.small },
   riskCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card,
     borderRadius: RADIUS.lg, padding: SPACING.lg, marginBottom: SPACING.sm, ...SHADOWS.sm,
   },
   riskIcon: { width: 40, height: 40, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },

@@ -18,6 +18,7 @@ import {
   SessionSummary,
 } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import { useFrenzy } from '../context/FrenzyContext';
 
 interface Message {
   id: string;
@@ -34,6 +35,8 @@ interface Props {
 type ChatSendMode = 'auto' | ResponseMode;
 
 const CHAT_MODE_STORAGE_KEY = '@bcabuddy_chat_mode';
+const LOCAL_HISTORY_KEY = '@bcabuddy_local_chat_history';
+const LOCAL_HISTORY_LIMIT = 200;
 
 const QUICK_PROMPTS = [
   '📚 Explain Data Structures',
@@ -52,8 +55,10 @@ const AI_RESPONSES: Record<string, string> = {
 
 export default function AIChatScreen({ navigation }: Props) {
   const { sessionMode } = useAuth();
+  const { active: frenzyActive, applyFrenzy } = useFrenzy();
   const [preferredResponseMode, setPreferredResponseMode] = useState<ResponseMode>('thinking');
   const [frenzyOverride, setFrenzyOverride] = useState(false);
+  const [backendMode, setBackendMode] = useState<string | null>(null);
   const [chatSendMode, setChatSendMode] = useState<ChatSendMode>('auto');
   const [modeMenuVisible, setModeMenuVisible] = useState(false);
   const [showQuickSuggestions, setShowQuickSuggestions] = useState(true);
@@ -84,6 +89,7 @@ export default function AIChatScreen({ navigation }: Props) {
   }, []);
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 
   const animateAssistantMessage = async (fullText: string) => {
     const text = String(fullText || '');
@@ -153,6 +159,7 @@ export default function AIChatScreen({ navigation }: Props) {
       } else {
         setChatSendMode('auto');
       }
+
     } catch {
       setPreferredResponseMode('thinking');
       setFrenzyOverride(false);
@@ -173,6 +180,14 @@ export default function AIChatScreen({ navigation }: Props) {
     : chatSendMode === 'auto'
       ? `AUTO (${preferredResponseMode.toUpperCase()} DEFAULT)`
       : chatSendMode.toUpperCase();
+
+  const responseStyleLabel = backendMode
+    ? backendMode.toUpperCase()
+    : frenzyOverride
+      ? 'PRO'
+      : chatSendMode === 'auto'
+        ? preferredResponseMode.toUpperCase()
+        : chatSendMode.toUpperCase();
 
   const setChatMode = async (mode: ChatSendMode) => {
     setChatSendMode(mode);
@@ -356,6 +371,19 @@ export default function AIChatScreen({ navigation }: Props) {
     return response;
   };
 
+  const appendLocalHistory = async (userText: string, aiText: string) => {
+    try {
+      const stored = await AsyncStorage.getItem(LOCAL_HISTORY_KEY);
+      const parsed = stored ? JSON.parse(stored) : [];
+      const existing = Array.isArray(parsed) ? parsed : [];
+      const next = [
+        ...existing,
+        { user_message: userText, ai_response: aiText, timestamp: new Date().toISOString() },
+      ].slice(-LOCAL_HISTORY_LIMIT);
+      await AsyncStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(next));
+    } catch {}
+  };
+
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;
 
@@ -373,7 +401,13 @@ export default function AIChatScreen({ navigation }: Props) {
       const backendReply = await chatWithBackend(text.trim(), {
         sessionId: privacyMode ? undefined : activeSessionId,
         responseMode: getEffectiveResponseMode(),
+        frenzyMode: frenzyOverride || frenzyActive,
       });
+      if (backendReply.backendMode) {
+        setBackendMode(backendReply.backendMode);
+      }
+      await applyFrenzy(backendReply);
+      await appendLocalHistory(text.trim(), backendReply.text);
       await animateAssistantMessage(backendReply.text);
       if (!privacyMode && backendReply.sessionId) {
         setActiveSessionId(backendReply.sessionId);
@@ -388,8 +422,9 @@ export default function AIChatScreen({ navigation }: Props) {
       const advisory = apiErr?.code === 'NO_AUTH_TOKEN'
         ? '\n\n[Backend connected, but auth token missing. Login token required for /chat.]'
         : '\n\n[Using offline mode response due to backend error.]';
-
-      await animateAssistantMessage(`${fallbackText}${advisory}`);
+      const combined = `${fallbackText}${advisory}`;
+      await appendLocalHistory(text.trim(), combined);
+      await animateAssistantMessage(combined);
       setBackendOnline(false);
     }
   };
@@ -428,6 +463,17 @@ export default function AIChatScreen({ navigation }: Props) {
               ● {backendOnline ? 'Azure Backend Online' : 'Offline Fallback Mode'}
             </Text>
             <Text style={styles.headerModeText}>Mode: {modeLabel}</Text>
+            {backendMode ? <Text style={styles.headerBackendMode}>Backend: {backendMode.toUpperCase()}</Text> : null}
+            <View style={styles.headerChipsRow}>
+              <View style={styles.headerChip}>
+                <Text style={styles.headerChipText}>Style: {responseStyleLabel}</Text>
+              </View>
+              {frenzyActive ? (
+                <View style={[styles.headerChip, styles.headerChipFrenzy]}>
+                  <Text style={styles.headerChipText}>Frenzy Active</Text>
+                </View>
+              ) : null}
+            </View>
             {privacyMode ? <Text style={styles.headerPrivacyText}>Privacy mode active</Text> : null}
           </View>
         </View>
@@ -461,6 +507,7 @@ export default function AIChatScreen({ navigation }: Props) {
           </View>
         </View>
       </Modal>
+
 
       {sessionMode === 'authenticated' && !privacyMode ? (
         <View style={styles.sessionsWrap}>
@@ -537,6 +584,8 @@ export default function AIChatScreen({ navigation }: Props) {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.messagesList}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         ListFooterComponent={
           isLoadingHistory ? (
             <Text style={styles.loadingHistoryText}>Loading session history...</Text>
@@ -560,7 +609,7 @@ export default function AIChatScreen({ navigation }: Props) {
       />
 
       {/* Input */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 80}>
         <View style={styles.inputBar}>
           <TextInput
             style={styles.input}
@@ -591,7 +640,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md,
-    backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.card, borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: SPACING.sm },
@@ -602,10 +651,33 @@ const styles = StyleSheet.create({
   headerTitle: { ...FONTS.bodyBold },
   headerStatus: { ...FONTS.small, color: COLORS.success, fontSize: 10 },
   headerModeText: { ...FONTS.small, color: COLORS.textSecondary, fontSize: 10, fontWeight: '700' },
+  headerBackendMode: { ...FONTS.small, color: COLORS.textSecondary, fontSize: 10, fontWeight: '700' },
   headerPrivacyText: { ...FONTS.small, color: COLORS.warning, fontSize: 10, fontWeight: '700' },
+  headerChipsRow: {
+    flexDirection: 'row',
+    gap: SPACING.xs,
+    marginTop: 4,
+  },
+  headerChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  headerChipFrenzy: {
+    borderColor: COLORS.warning + '40',
+  },
+  headerChipText: {
+    ...FONTS.small,
+    fontSize: 9,
+    color: COLORS.textSecondary,
+    fontWeight: '700',
+  },
   moreBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   sessionsWrap: {
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.card,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     paddingBottom: SPACING.sm,
@@ -692,7 +764,7 @@ const styles = StyleSheet.create({
   renameCard: {
     width: '100%',
     borderRadius: RADIUS.xl,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.card,
     padding: SPACING.lg,
     ...SHADOWS.md,
   },
@@ -764,7 +836,7 @@ const styles = StyleSheet.create({
   },
   msgBubble: { maxWidth: '78%', borderRadius: RADIUS.xl, padding: SPACING.lg },
   msgBubbleUser: { backgroundColor: COLORS.primary, borderBottomRightRadius: 4 },
-  msgBubbleAI: { backgroundColor: COLORS.white, borderBottomLeftRadius: 4, ...SHADOWS.sm },
+  msgBubbleAI: { backgroundColor: COLORS.card, borderBottomLeftRadius: 4, ...SHADOWS.sm },
   msgText: { ...FONTS.body, lineHeight: 22 },
   typingCursor: { ...FONTS.bodyBold, color: COLORS.primary, marginTop: 2 },
   promptsSection: { paddingTop: SPACING.xl },
@@ -772,14 +844,14 @@ const styles = StyleSheet.create({
   promptsTitle: { ...FONTS.caption, marginBottom: SPACING.md },
   promptsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   promptChip: {
-    backgroundColor: COLORS.white, borderRadius: RADIUS.full,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.full,
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm,
     borderWidth: 1, borderColor: COLORS.border,
   },
   promptText: { ...FONTS.caption, fontWeight: '500', color: COLORS.text },
   inputBar: {
     flexDirection: 'row', alignItems: 'flex-end', padding: SPACING.md,
-    backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.border,
+    backgroundColor: COLORS.card, borderTopWidth: 1, borderTopColor: COLORS.border,
   },
   input: {
     flex: 1, backgroundColor: COLORS.background, borderRadius: RADIUS.xl,

@@ -125,7 +125,7 @@ export default function PrivacyScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
+  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
   headerTitle: { ...FONTS.h3 },
   content: { paddingHorizontal: SPACING.xl },
   heroBanner: {
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   heroTitle: { ...FONTS.h3, color: COLORS.success, marginTop: SPACING.md },
   heroDesc: { ...FONTS.caption, textAlign: 'center', marginTop: SPACING.sm, lineHeight: 20 },
   lastUpdated: { ...FONTS.small, textAlign: 'center', marginBottom: SPACING.xl },
-  sectionCard: { backgroundColor: COLORS.white, borderRadius: RADIUS.xl, padding: SPACING.xl, marginBottom: SPACING.lg, ...SHADOWS.sm },
+  sectionCard: { backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.xl, marginBottom: SPACING.lg, ...SHADOWS.sm },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.lg },
   sectionIcon: { width: 40, height: 40, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
   sectionTitle: { ...FONTS.bodyBold, fontSize: 16, marginLeft: SPACING.md },

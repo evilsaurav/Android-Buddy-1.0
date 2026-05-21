@@ -14,6 +14,7 @@ import {
   generateExamWithBackend,
   generateQuizWithBackend,
   resolveBackendSubjectCode,
+  fetchSyllabusProgressWithBackend,
 } from '../lib/api';
 
 interface Props {
@@ -32,6 +33,29 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
   const [toolError, setToolError] = useState('');
   const [explainingIndex, setExplainingIndex] = useState<number | null>(null);
   const [explanationText, setExplanationText] = useState('');
+  const [nextTopic, setNextTopic] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const loadProgress = async () => {
+      if (sessionMode !== 'authenticated') return;
+      try {
+        const data = await fetchSyllabusProgressWithBackend(subject.name);
+        if (data && Array.isArray(data.topics_completed)) {
+          const completedNames = new Set(data.topics_completed.map((n: unknown) => String(n).toLowerCase().trim()));
+          setTopics(prev => prev.map(t => ({
+            ...t,
+            completed: t.completed || completedNames.has(t.name.toLowerCase().trim())
+          })));
+        }
+        if (data?.next_topic) {
+          setNextTopic(String(data.next_topic));
+        }
+      } catch {
+        // ignore
+      }
+    };
+    loadProgress();
+  }, [sessionMode, subject.name]);
 
   const filteredTopics = topics.filter((t) => {
     if (filter === 'pending') return !t.completed;
@@ -55,11 +79,55 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
 
   const backendSubjectCode = resolveBackendSubjectCode(subject.name, subject.semester);
 
+  const shuffleArray = <T,>(items: T[]) => {
+    const next = [...items];
+    for (let i = next.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [next[i], next[j]] = [next[j], next[i]];
+    }
+    return next;
+  };
+
+  const buildDemoQuestions = (count: number, includeSubjective: boolean) => {
+    const topicPool = subject.topics.map((t) => t.name).filter(Boolean);
+    if (!topicPool.length) return [] as GeneratedQuestion[];
+
+    const mcqCount = includeSubjective ? Math.max(1, count - 2) : Math.max(1, count);
+    const pickedTopics = shuffleArray(topicPool).slice(0, mcqCount + (includeSubjective ? 2 : 0));
+
+    const buildOptions = (correct: string) => {
+      const distractors = shuffleArray(topicPool.filter((t) => t !== correct)).slice(0, 3);
+      return shuffleArray([correct, ...distractors]);
+    };
+
+    const mcqs: GeneratedQuestion[] = pickedTopics.slice(0, mcqCount).map((topic) => ({
+      question: `Which topic best matches: ${topic}?`,
+      options: buildOptions(topic),
+      correct_answer: topic,
+      type: 'mcq',
+      subject: backendSubjectCode,
+      semester: subject.semester,
+    }));
+
+    if (!includeSubjective) return mcqs;
+
+    const subjectiveItems: GeneratedQuestion[] = pickedTopics.slice(mcqCount, mcqCount + 2).map((topic) => ({
+      question: `Explain the core idea of ${topic}. Give one real-world example.`,
+      type: 'subjective',
+      subject: backendSubjectCode,
+      semester: subject.semester,
+    }));
+
+    return [...mcqs, ...subjectiveItems];
+  };
+
   const createQuiz = async () => {
     if (sessionMode !== 'authenticated') {
-      setGeneratedTitle('Login required for live quiz generation');
-      setGeneratedItems([]);
-      setToolError('');
+      const demoItems = buildDemoQuestions(8, false);
+      setGeneratedTitle(`Subject Quiz (Demo) • ${backendSubjectCode}`);
+      setGeneratedItems(demoItems);
+      setToolError('Login for live quiz generation. Demo uses local topics.');
+      setExplanationText('');
       return;
     }
 
@@ -91,9 +159,11 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
 
   const createExam = async () => {
     if (sessionMode !== 'authenticated') {
-      setGeneratedTitle('Login required for live exam generation');
-      setGeneratedItems([]);
-      setToolError('');
+      const demoItems = buildDemoQuestions(8, true);
+      setGeneratedTitle(`Subject Exam (Demo) • ${backendSubjectCode}`);
+      setGeneratedItems(demoItems);
+      setToolError('Login for live exam generation. Demo uses local topics.');
+      setExplanationText('');
       return;
     }
 
@@ -220,7 +290,9 @@ export default function SubjectDetailScreen({ route, navigation }: Props) {
             <Text style={styles.aiInsightLabel}>AI Recommendation</Text>
           </View>
           <Text style={styles.aiInsightText}>
-            {progress < 0.5
+            {nextTopic
+              ? `Your next recommended topic is ${nextTopic}. Start here to build momentum and improve your overall score.`
+              : progress < 0.5
               ? `Focus on completing the easier topics first to build momentum. Start with ${topics.find(t => !t.completed && t.difficulty === 'easy')?.name || 'basic concepts'}.`
               : progress < 0.8
               ? `Great progress! Tackle the harder topics now. ${topics.find(t => !t.completed && t.difficulty === 'hard')?.name || 'Advanced topics'} should be your priority.`
@@ -324,10 +396,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md,
   },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
+  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
   headerTitle: { ...FONTS.h3, flex: 1, textAlign: 'center' },
   heroCard: {
-    marginHorizontal: SPACING.xl, backgroundColor: COLORS.white, borderRadius: RADIUS.xl,
+    marginHorizontal: SPACING.xl, backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     padding: SPACING.xl, borderLeftWidth: 4, ...SHADOWS.md,
   },
   heroTop: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xl },
@@ -352,7 +424,7 @@ const styles = StyleSheet.create({
   aiActionsCard: {
     marginHorizontal: SPACING.xl,
     marginTop: SPACING.lg,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.card,
     borderRadius: RADIUS.lg,
     padding: SPACING.lg,
     ...SHADOWS.sm,
@@ -401,13 +473,13 @@ const styles = StyleSheet.create({
   aiInsightText: { ...FONTS.body, lineHeight: 20, color: COLORS.textSecondary },
   filterRow: {
     flexDirection: 'row', marginHorizontal: SPACING.xl, marginTop: SPACING.xl,
-    backgroundColor: COLORS.white, borderRadius: RADIUS.full, padding: 4, ...SHADOWS.sm,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.full, padding: 4, ...SHADOWS.sm,
   },
   filterTab: { flex: 1, paddingVertical: SPACING.sm, borderRadius: RADIUS.full, alignItems: 'center' },
   filterText: { ...FONTS.bodyBold, fontSize: 12, color: COLORS.textSecondary },
   topicsList: { paddingHorizontal: SPACING.xl, marginTop: SPACING.lg },
   topicCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card,
     borderRadius: RADIUS.lg, padding: SPACING.lg, marginBottom: SPACING.sm, ...SHADOWS.sm,
   },
   topicDone: { opacity: 0.7 },

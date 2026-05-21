@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
   },
   switchRow: {
     flexDirection: 'row',
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.card,
     borderRadius: RADIUS.full,
     padding: 4,
     marginBottom: SPACING.lg,
@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
   card: {
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.card,
     borderRadius: RADIUS.xl,
     padding: SPACING.lg,
     ...SHADOWS.md,

@@ -205,11 +205,9 @@ interface ForgotPasswordResponse {
 }
 
 export interface DashboardStats {
-  total_sessions?: number;
-  last_subject?: string;
-  study_hours?: number;
-  avg_quiz_score?: number;
-  recent_activity?: unknown[];
+  study_activity?: Record<string, number>;
+  review_history?: unknown[];
+  recent_topics?: string[];
 }
 
 export interface LatestStudyRoadmap {
@@ -274,9 +272,8 @@ export interface SyllabusProgressResponse {
   subject?: string;
   semester?: number | string;
   completion_pct?: number;
-  topics_total?: number;
-  topics_covered?: number;
-  weak_topics?: string[];
+  topics_completed?: string[];
+  next_topic?: string;
   [key: string]: unknown;
 }
 
@@ -287,12 +284,39 @@ export interface ApcPerformanceSummary {
   report_markdown?: string;
 }
 
+export interface ApcHistoryItem {
+  id?: number;
+  tool_name?: string;
+  tool?: string;
+  subject?: string;
+  response_text?: string;
+  response?: string;
+  created_at?: string;
+}
+
+export interface StudyPlanDay {
+  day: number;
+  focus_subject: string;
+  topics_to_cover: string[];
+  allocated_hours: number;
+}
+
+export interface StudyPlanPayload {
+  subjects: string[];
+  days_left: number;
+  daily_hours: number;
+}
+
+export interface StudyPlanResponse {
+  study_plan: StudyPlanDay[];
+}
+
 export interface RoadmapHistoryItem {
   id?: number;
   roadmap_id?: number;
   title?: string;
   subject?: string;
-  semester?: number;
+  semester?: number | string;
   accepted_at?: string;
   created_at?: string;
 }
@@ -547,9 +571,30 @@ export async function fetchStudyRoadmapHistoryWithBackend(): Promise<RoadmapHist
     await throwApiError(res, 'ROADMAP_HISTORY_FAILED', 'Study roadmap history fetch failed');
   }
 
-  const rows = (await res.json()) as Array<Record<string, unknown>>;
-  if (!Array.isArray(rows)) {
-    return [];
+  const payload = (await res.json()) as unknown;
+  let rows: Array<Record<string, unknown>> = [];
+
+  if (Array.isArray(payload)) {
+    rows = payload as Array<Record<string, unknown>>;
+  } else if (payload && typeof payload === 'object') {
+    const groups = (payload as { groups?: unknown }).groups;
+    if (groups && typeof groups === 'object' && !Array.isArray(groups)) {
+      Object.entries(groups as Record<string, unknown>).forEach(([semester, subjects]) => {
+        if (!subjects || typeof subjects !== 'object' || Array.isArray(subjects)) return;
+        Object.entries(subjects as Record<string, unknown>).forEach(([subject, items]) => {
+          if (!Array.isArray(items)) return;
+          items.forEach((item) => {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+              rows.push({
+                ...(item as Record<string, unknown>),
+                semester,
+                subject,
+              });
+            }
+          });
+        });
+      });
+    }
   }
 
   return rows.map((row) => ({
@@ -557,10 +602,51 @@ export async function fetchStudyRoadmapHistoryWithBackend(): Promise<RoadmapHist
     roadmap_id: typeof row.roadmap_id === 'number' ? row.roadmap_id : undefined,
     title: typeof row.title === 'string' ? row.title : undefined,
     subject: typeof row.subject === 'string' ? row.subject : undefined,
-    semester: typeof row.semester === 'number' ? row.semester : undefined,
+    semester: typeof row.semester === 'number' || typeof row.semester === 'string' ? row.semester : undefined,
     accepted_at: typeof row.accepted_at === 'string' ? row.accepted_at : undefined,
     created_at: typeof row.created_at === 'string' ? row.created_at : undefined,
   }));
+}
+
+export async function generateStudyPlanWithBackend(payload: StudyPlanPayload): Promise<StudyPlanResponse> {
+  const subjects = payload.subjects.map((subject) => subject.trim()).filter(Boolean);
+  if (subjects.length === 0) {
+    throw new ApiError('Select at least one subject.', 'STUDY_PLAN_SUBJECTS_MISSING');
+  }
+
+  const token = await getStoredToken();
+  const res = await fetch(buildApiUrl('/api/generate-study-plan'), {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      subjects,
+      days_left: Math.max(1, Math.min(120, Math.round(Number(payload.days_left) || 1))),
+      daily_hours: Math.max(0.5, Math.min(12, Number(payload.daily_hours) || 2)),
+    }),
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'STUDY_PLAN_FAILED', 'Study plan generation failed');
+  }
+
+  const data = (await res.json()) as StudyPlanResponse;
+  return {
+    study_plan: Array.isArray(data?.study_plan)
+      ? data.study_plan
+          .map((day) => ({
+            day: Number(day.day || 0),
+            focus_subject: String(day.focus_subject || '').trim(),
+            topics_to_cover: Array.isArray(day.topics_to_cover)
+              ? day.topics_to_cover.map((topic) => String(topic).trim()).filter(Boolean)
+              : [],
+            allocated_hours: Number(day.allocated_hours || 0),
+          }))
+          .filter((day) => day.day > 0 && day.focus_subject)
+      : [],
+  };
 }
 
 export async function gradeSubjectiveWithBackend(payload: SubjectiveGradingPayload): Promise<Record<string, unknown>> {
@@ -686,13 +772,25 @@ export async function callApcEndpointWithBackend(
 
 interface ChatRequestBody {
   message: string;
+  mode?: string;
   response_mode?: ResponseMode;
+  selected_subject?: string;
+  selected_semester?: string;
   session_id?: number;
+  active_tool?: string;
+  frenzy_mode?: boolean;
 }
 
 interface ChatResponse {
   text: string;
   sessionId?: number;
+  themeOverride?: string | null;
+  frenzyActive?: boolean;
+  frenzyPersona?: string;
+  frenzyMessage?: string;
+  frenzySpeedMs?: number;
+  frenzyResetLabel?: string;
+  backendMode?: string;
 }
 
 export async function getSessionsWithBackend(): Promise<SessionSummary[]> {
@@ -1010,6 +1108,39 @@ export async function logApcWithBackend(
   return (await res.json()) as Record<string, unknown>;
 }
 
+export async function fetchApcHistoryWithBackend(): Promise<ApcHistoryItem[]> {
+  const token = await requireToken();
+  const res = await fetch(buildApiUrl('/apc/history'), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'APC_HISTORY_FAILED', 'APC history fetch failed');
+  }
+
+  const data = await res.json();
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  return data.map((row) => {
+    const item = row as Record<string, unknown>;
+    return {
+      id: typeof item.id === 'number' ? item.id : undefined,
+      tool_name: typeof item.tool_name === 'string' ? item.tool_name : undefined,
+      tool: typeof item.tool === 'string' ? item.tool : undefined,
+      subject: typeof item.subject === 'string' ? item.subject : undefined,
+      response_text: typeof item.response_text === 'string' ? item.response_text : undefined,
+      response: typeof item.response === 'string' ? item.response : undefined,
+      created_at: typeof item.created_at === 'string' ? item.created_at : undefined,
+    };
+  });
+}
+
 export interface GeneratedQuestion {
   question: string;
   options?: string[];
@@ -1185,18 +1316,41 @@ export async function generateExamWithBackend(
 
 export async function chatWithBackend(
   message: string,
-  options?: { sessionId?: number; responseMode?: ResponseMode }
+  options?: {
+    sessionId?: number;
+    responseMode?: ResponseMode;
+    mode?: string;
+    selectedSubject?: string;
+    selectedSemester?: string;
+    activeTool?: string;
+    frenzyMode?: boolean;
+  }
 ): Promise<ChatResponse> {
   const token = await requireToken();
 
   const body: ChatRequestBody = {
     message,
   };
+  if (options?.mode) {
+    body.mode = options.mode;
+  }
   if (options?.responseMode) {
     body.response_mode = options.responseMode;
   }
+  if (options?.selectedSubject) {
+    body.selected_subject = options.selectedSubject;
+  }
+  if (options?.selectedSemester) {
+    body.selected_semester = options.selectedSemester;
+  }
+  if (options?.activeTool) {
+    body.active_tool = options.activeTool;
+  }
   if (typeof options?.sessionId === 'number') {
     body.session_id = options.sessionId;
+  }
+  if (options?.frenzyMode !== undefined) {
+    body.frenzy_mode = options.frenzyMode;
   }
 
   const res = await fetch(buildApiUrl('/chat'), {
@@ -1231,8 +1385,22 @@ export async function chatWithBackend(
     data?.session?.id ||
     undefined;
 
+  const themeOverride =
+    data?.theme_override !== undefined
+      ? data.theme_override
+      : data?.themeOverride !== undefined
+        ? data.themeOverride
+        : null;
+
   return {
     text: String(responseText),
     sessionId: typeof rawSessionId === 'number' ? rawSessionId : undefined,
+    themeOverride: typeof themeOverride === 'string' ? themeOverride : themeOverride === null ? null : undefined,
+    frenzyActive: typeof data?.active === 'boolean' ? data.active : undefined,
+    frenzyPersona: typeof data?.persona === 'string' ? data.persona : undefined,
+    frenzyMessage: typeof data?.message === 'string' ? data.message : undefined,
+    frenzySpeedMs: typeof data?.speed_ms === 'number' ? data.speed_ms : typeof data?.speedMs === 'number' ? data.speedMs : undefined,
+    frenzyResetLabel: typeof data?.reset_label === 'string' ? data.reset_label : typeof data?.resetLabel === 'string' ? data.resetLabel : undefined,
+    backendMode: typeof data?.mode === 'string' ? data.mode : undefined,
   };
 }

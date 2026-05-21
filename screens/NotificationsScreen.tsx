@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
+import { SUBJECTS } from '../lib/data';
 
 interface Props {
   navigation: any;
@@ -13,6 +15,7 @@ interface Props {
 interface NotifSettings {
   studyReminders: boolean;
   examAlerts: boolean;
+  quizReminders: boolean;
   backlogWarnings: boolean;
   weeklyReport: boolean;
   achievementAlerts: boolean;
@@ -23,11 +26,19 @@ interface NotifSettings {
 }
 
 const STORAGE_KEY = '@bcabuddy_notifications';
+const SCHEDULED_KEY = '@bcabuddy_notification_ids';
+
+type ScheduledIds = {
+  study?: string[];
+  exams?: string[];
+  quiz?: string[];
+};
 
 export default function NotificationsScreen({ navigation }: Props) {
   const [settings, setSettings] = useState<NotifSettings>({
     studyReminders: true,
     examAlerts: true,
+    quizReminders: true,
     backlogWarnings: true,
     weeklyReport: true,
     achievementAlerts: true,
@@ -36,9 +47,22 @@ export default function NotificationsScreen({ navigation }: Props) {
     quietHoursStart: '10:00 PM',
     quietHoursEnd: '07:00 AM',
   });
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     loadSettings();
+  }, []);
+
+  useEffect(() => {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
   }, []);
 
   const loadSettings = async () => {
@@ -46,6 +70,7 @@ export default function NotificationsScreen({ navigation }: Props) {
       const stored = await AsyncStorage.getItem(STORAGE_KEY);
       if (stored) setSettings(JSON.parse(stored));
     } catch {}
+    setHydrated(true);
   };
 
   const toggle = async (key: keyof NotifSettings) => {
@@ -53,6 +78,131 @@ export default function NotificationsScreen({ navigation }: Props) {
     setSettings(newSettings as NotifSettings);
     try { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings)); } catch {}
   };
+
+  const parseTime = (label: string) => {
+    const match = String(label || '').trim().match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (!match) return { hour: 9, minute: 0 };
+    let hour = Number(match[1]);
+    const minute = Number(match[2]);
+    const meridian = match[3].toUpperCase();
+    if (meridian === 'PM' && hour < 12) hour += 12;
+    if (meridian === 'AM' && hour === 12) hour = 0;
+    return { hour, minute };
+  };
+
+  const ensurePermission = async () => {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) return true;
+    const request = await Notifications.requestPermissionsAsync();
+    return Boolean(request.granted || request.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL);
+  };
+
+  const cancelScheduled = async (ids?: string[]) => {
+    if (!ids || !ids.length) return;
+    await Promise.all(ids.map((id) => Notifications.cancelScheduledNotificationAsync(id)));
+  };
+
+  const loadScheduled = async (): Promise<ScheduledIds> => {
+    try {
+      const raw = await AsyncStorage.getItem(SCHEDULED_KEY);
+      return raw ? (JSON.parse(raw) as ScheduledIds) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const saveScheduled = async (next: ScheduledIds) => {
+    try {
+      await AsyncStorage.setItem(SCHEDULED_KEY, JSON.stringify(next));
+    } catch {}
+  };
+
+  const buildExamAlerts = () => {
+    const dates = SUBJECTS.filter((s) => s.examDate).map((s) => ({
+      subject: s.name,
+      date: s.examDate as string,
+    }));
+    return dates;
+  };
+
+  const scheduleNotifications = async (nextSettings: NotifSettings) => {
+    const allowed = await ensurePermission();
+    if (!allowed) return;
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('study', {
+        name: 'Study Reminders',
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    }
+
+    const scheduled = await loadScheduled();
+    await cancelScheduled(scheduled.study);
+    await cancelScheduled(scheduled.exams);
+    await cancelScheduled(scheduled.quiz);
+
+    const { hour, minute } = parseTime(nextSettings.reminderTime);
+    const nextIds: ScheduledIds = {};
+
+    if (nextSettings.studyReminders) {
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Study time',
+          body: 'Daily 45 minutes focus = big wins. Let us start now.',
+          sound: true,
+        },
+        trigger: { hour, minute, repeats: true, channelId: 'study' },
+      });
+      nextIds.study = [id];
+    }
+
+    if (nextSettings.quizReminders) {
+      const id = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Quick quiz time',
+          body: '10 minute quiz now. Practice makes you unstoppable.',
+          sound: true,
+        },
+        trigger: { hour, minute, repeats: true, channelId: 'study' },
+      });
+      nextIds.quiz = [id];
+    }
+
+    if (nextSettings.examAlerts) {
+      const examPromises: Array<Promise<string>> = [];
+      const exams = buildExamAlerts();
+      const offsets = [7, 3, 1];
+      exams.forEach((exam) => {
+        offsets.forEach((daysBefore) => {
+          const target = new Date(exam.date);
+          target.setDate(target.getDate() - daysBefore);
+          target.setHours(hour, minute, 0, 0);
+          const diffSeconds = Math.round((target.getTime() - Date.now()) / 1000);
+          if (Number.isNaN(target.getTime()) || diffSeconds <= 0) return;
+          examPromises.push(Notifications.scheduleNotificationAsync({
+            content: {
+              title: `Exam in ${daysBefore} day${daysBefore > 1 ? 's' : ''}`,
+              body: `${exam.subject} exam is coming. Revise key topics today.`,
+              sound: true,
+            },
+            trigger: { seconds: diffSeconds } as Notifications.NotificationTriggerInput,
+          }));
+        });
+      });
+
+      if (examPromises.length) {
+        const resolved = await Promise.all(examPromises);
+        nextIds.exams = resolved;
+      }
+    }
+
+    await saveScheduled(nextIds);
+  };
+
+  useEffect(() => {
+    if (!hydrated) return;
+    scheduleNotifications(settings);
+  }, [hydrated, settings]);
 
   const TIMES = ['07:00 AM', '08:00 AM', '09:00 AM', '10:00 AM', '12:00 PM', '06:00 PM', '08:00 PM'];
 
@@ -99,6 +249,7 @@ export default function NotificationsScreen({ navigation }: Props) {
           <Text style={styles.sectionTitle}>Study Notifications</Text>
           <View style={styles.card}>
             {renderToggle('alarm-outline', 'Study Reminders', 'Daily study session reminders', 'studyReminders', COLORS.primary)}
+            {renderToggle('rocket-outline', 'Quiz Reminders', 'Quick quiz motivation alerts', 'quizReminders', COLORS.warning)}
             {renderToggle('sparkles-outline', 'AI Suggestions', 'Smart study recommendations', 'aiSuggestions', COLORS.secondary)}
             {renderToggle('trophy-outline', 'Achievements', 'Celebrate your milestones', 'achievementAlerts', '#F59E0B')}
           </View>
@@ -162,7 +313,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md,
   },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
+  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
   headerTitle: { ...FONTS.h3 },
   content: { paddingHorizontal: SPACING.xl },
   statusBanner: {
@@ -175,7 +326,7 @@ const styles = StyleSheet.create({
   statusDesc: { ...FONTS.caption, marginTop: 2 },
   section: { marginBottom: SPACING.xl },
   sectionTitle: { ...FONTS.bodyBold, color: COLORS.primary, marginBottom: SPACING.md, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 },
-  card: { backgroundColor: COLORS.white, borderRadius: RADIUS.xl, padding: SPACING.md, ...SHADOWS.sm },
+  card: { backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.md, ...SHADOWS.sm },
   row: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.sm, borderBottomWidth: 0.5, borderBottomColor: COLORS.border + '50',

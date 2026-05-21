@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
   editProfileText: { ...FONTS.bodyBold, fontSize: 12, color: COLORS.primary },
   statsGrid: {
     flexDirection: 'row', marginHorizontal: SPACING.xl,
-    backgroundColor: COLORS.white, borderRadius: RADIUS.xl, ...SHADOWS.md,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, ...SHADOWS.md,
   },
   statBox: { flex: 1, alignItems: 'center', paddingVertical: SPACING.lg },
   statBorder: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: COLORS.border },
@@ -348,14 +348,14 @@ const styles = StyleSheet.create({
   sectionTitle: { ...FONTS.h3, marginBottom: SPACING.lg },
   achCard: {
     width: 100, alignItems: 'center', marginRight: SPACING.md,
-    backgroundColor: COLORS.white, borderRadius: RADIUS.xl, padding: SPACING.md, ...SHADOWS.sm,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.md, ...SHADOWS.sm,
   },
   achLocked: { opacity: 0.5 },
   achIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.sm },
   achLabel: { ...FONTS.small, textAlign: 'center', fontWeight: '600', color: COLORS.text },
   achLockIcon: { marginTop: 4 },
   activityCard: {
-    backgroundColor: COLORS.white, borderRadius: RADIUS.xl, padding: SPACING.lg, ...SHADOWS.md,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.lg, ...SHADOWS.md,
   },
   activityBars: { flexDirection: 'row', justifyContent: 'space-between', height: 100, marginBottom: SPACING.md },
   activityBarCol: { flex: 1, alignItems: 'center' },
@@ -373,7 +373,7 @@ const styles = StyleSheet.create({
     ...FONTS.bodyBold, color: COLORS.primary, marginBottom: SPACING.md,
     fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.8,
   },
-  menuCard: { backgroundColor: COLORS.white, borderRadius: RADIUS.xl, ...SHADOWS.sm, overflow: 'hidden' },
+  menuCard: { backgroundColor: COLORS.card, borderRadius: RADIUS.xl, ...SHADOWS.sm, overflow: 'hidden' },
   menuItem: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.lg,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -10,8 +10,10 @@ import {
   acceptStudyRoadmapWithBackend,
   fetchLatestStudyRoadmapWithBackend,
   fetchStudyRoadmapHistoryWithBackend,
+  generateStudyPlanWithBackend,
   LatestStudyRoadmap,
   RoadmapHistoryItem,
+  StudyPlanDay,
 } from '../lib/api';
 
 interface Props {
@@ -24,6 +26,11 @@ export default function RoadmapScreen({ navigation }: Props) {
   const [latestRoadmap, setLatestRoadmap] = useState<LatestStudyRoadmap | null>(null);
   const [roadmapHistory, setRoadmapHistory] = useState<RoadmapHistoryItem[]>([]);
   const [acceptingRoadmap, setAcceptingRoadmap] = useState(false);
+  const [planDaysLeft, setPlanDaysLeft] = useState('15');
+  const [planDailyHours, setPlanDailyHours] = useState('2');
+  const [generatedPlan, setGeneratedPlan] = useState<StudyPlanDay[]>([]);
+  const [generatingPlan, setGeneratingPlan] = useState(false);
+  const [savingGeneratedPlan, setSavingGeneratedPlan] = useState(false);
 
   const filteredSubjects = SUBJECTS.filter((s) => s.semester === selectedSemester);
   const allSubjects = selectedSemester === 0 ? SUBJECTS : filteredSubjects;
@@ -105,6 +112,69 @@ export default function RoadmapScreen({ navigation }: Props) {
     }
   };
 
+  const buildGeneratedPlanText = (days: StudyPlanDay[]) =>
+    days
+      .map((day) => {
+        const topics = day.topics_to_cover.length > 0 ? day.topics_to_cover.join(', ') : 'Revision';
+        return `Day ${day.day}: ${day.focus_subject} (${day.allocated_hours}h) -> ${topics}`;
+      })
+      .join('\n');
+
+  const generateBackendPlan = async () => {
+    const subjects = (selectedSemester === 0 ? SUBJECTS : filteredSubjects)
+      .slice(0, selectedSemester === 0 ? 6 : 4)
+      .map((subject) => subject.name);
+
+    if (subjects.length === 0) {
+      Alert.alert('No subjects', 'Select a semester with subjects first.');
+      return;
+    }
+
+    try {
+      setGeneratingPlan(true);
+      const data = await generateStudyPlanWithBackend({
+        subjects,
+        days_left: Number(planDaysLeft || 15),
+        daily_hours: Number(planDailyHours || 2),
+      });
+      if (!data.study_plan.length) {
+        Alert.alert('No plan generated', 'Backend returned an empty study plan. Please try again.');
+        return;
+      }
+      setGeneratedPlan(data.study_plan);
+    } catch (error) {
+      Alert.alert('Plan failed', String((error as Error)?.message || 'Could not generate study plan.'));
+    } finally {
+      setGeneratingPlan(false);
+    }
+  };
+
+  const saveGeneratedPlan = async () => {
+    if (sessionMode !== 'authenticated') {
+      Alert.alert('Login required', 'Please login to save generated roadmaps.');
+      return;
+    }
+    if (!generatedPlan.length) return;
+
+    try {
+      setSavingGeneratedPlan(true);
+      const subjects = Array.from(new Set(generatedPlan.map((day) => day.focus_subject).filter(Boolean)));
+      await acceptStudyRoadmapWithBackend({
+        subject: subjects.slice(0, 3).join(', ') || 'Study Plan',
+        semester: selectedSemester === 0 ? 'All Semesters' : `Sem ${selectedSemester}`,
+        duration_days: generatedPlan.length,
+        roadmap_text: buildGeneratedPlanText(generatedPlan),
+      });
+      const history = await fetchStudyRoadmapHistoryWithBackend();
+      setRoadmapHistory(history.slice(0, 4));
+      Alert.alert('Saved', 'Generated study plan saved to roadmap history.');
+    } catch {
+      Alert.alert('Unable to save', 'Could not save this generated plan right now.');
+    } finally {
+      setSavingGeneratedPlan(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
@@ -141,6 +211,63 @@ export default function RoadmapScreen({ navigation }: Props) {
           <View style={[styles.progressBarFill, { width: `${overallProgress * 100}%` }]} />
         </View>
         <Text style={styles.progressSubtext}>{allSubjects.length} subjects • {allSubjects.reduce((s, sub) => s + sub.totalTopics, 0)} total topics</Text>
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.generatorCard}>
+        <View style={styles.generatorHeader}>
+          <View>
+            <Text style={styles.generatorTitle}>Backend Study Plan</Text>
+            <Text style={styles.generatorSub}>AI plan from /api/generate-study-plan</Text>
+          </View>
+          <Ionicons name="sparkles-outline" size={22} color={COLORS.secondary} />
+        </View>
+        <View style={styles.generatorInputs}>
+          <View style={styles.generatorInputWrap}>
+            <Text style={styles.inputLabel}>Days</Text>
+            <TextInput
+              style={styles.generatorInput}
+              keyboardType="number-pad"
+              value={planDaysLeft}
+              onChangeText={setPlanDaysLeft}
+              placeholder="15"
+              placeholderTextColor={COLORS.textMuted}
+            />
+          </View>
+          <View style={styles.generatorInputWrap}>
+            <Text style={styles.inputLabel}>Hours/day</Text>
+            <TextInput
+              style={styles.generatorInput}
+              keyboardType="decimal-pad"
+              value={planDailyHours}
+              onChangeText={setPlanDailyHours}
+              placeholder="2"
+              placeholderTextColor={COLORS.textMuted}
+            />
+          </View>
+        </View>
+        <TouchableOpacity style={styles.generateBtn} onPress={generateBackendPlan}>
+          <Ionicons name="calendar-outline" size={16} color={COLORS.white} />
+          <Text style={styles.generateBtnText}>{generatingPlan ? 'Generating...' : 'Generate Plan'}</Text>
+        </TouchableOpacity>
+        {generatedPlan.length > 0 ? (
+          <View style={styles.generatedPlanBox}>
+            {generatedPlan.slice(0, 5).map((day) => (
+              <View key={`${day.day}-${day.focus_subject}`} style={styles.planDayRow}>
+                <Text style={styles.planDayBadge}>D{day.day}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.planDayTitle}>{day.focus_subject} - {day.allocated_hours}h</Text>
+                  <Text style={styles.planDayTopics} numberOfLines={2}>
+                    {day.topics_to_cover.join(', ') || 'Revision'}
+                  </Text>
+                </View>
+              </View>
+            ))}
+            <TouchableOpacity style={styles.savePlanBtn} onPress={saveGeneratedPlan}>
+              <Ionicons name="cloud-done-outline" size={15} color={COLORS.primary} />
+              <Text style={styles.savePlanText}>{savingGeneratedPlan ? 'Saving...' : 'Save to History'}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       </Animated.View>
 
       {latestRoadmap ? (
@@ -246,18 +373,18 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg, paddingBottom: SPACING.sm },
   title: { ...FONTS.h1 },
   subtitle: { ...FONTS.caption, marginTop: 4 },
-  tabScroll: { maxHeight: 50, marginTop: SPACING.md },
-  tabContent: { paddingHorizontal: SPACING.xl, gap: SPACING.sm },
+  tabScroll: { maxHeight: 56, marginTop: SPACING.md, zIndex: 4, elevation: 4, paddingBottom: SPACING.xs },
+  tabContent: { paddingHorizontal: SPACING.xl, gap: SPACING.sm, paddingBottom: SPACING.sm },
   semTab: {
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.full, backgroundColor: COLORS.white, ...SHADOWS.sm,
+    borderRadius: RADIUS.full, backgroundColor: COLORS.card, ...SHADOWS.sm,
   },
   semTabActive: { backgroundColor: COLORS.primary },
   semTabText: { ...FONTS.bodyBold, fontSize: 13, color: COLORS.textSecondary },
   semTabTextActive: { color: COLORS.white },
   progressCard: {
     marginHorizontal: SPACING.xl, marginTop: SPACING.lg,
-    backgroundColor: COLORS.white, borderRadius: RADIUS.xl, padding: SPACING.lg, ...SHADOWS.md,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.lg, ...SHADOWS.md,
   },
   progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
   progressTitle: { ...FONTS.bodyBold },
@@ -265,6 +392,75 @@ const styles = StyleSheet.create({
   progressBarBg: { height: 8, backgroundColor: COLORS.border, borderRadius: RADIUS.full, overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: RADIUS.full },
   progressSubtext: { ...FONTS.caption, marginTop: SPACING.sm },
+  generatorCard: {
+    marginHorizontal: SPACING.xl,
+    marginTop: SPACING.md,
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    ...SHADOWS.sm,
+  },
+  generatorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.md,
+  },
+  generatorTitle: { ...FONTS.bodyBold, color: COLORS.text },
+  generatorSub: { ...FONTS.small, color: COLORS.textSecondary, marginTop: 2 },
+  generatorInputs: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md },
+  generatorInputWrap: { flex: 1 },
+  inputLabel: { ...FONTS.small, color: COLORS.textSecondary, marginBottom: 4 },
+  generatorInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.background,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    ...FONTS.body,
+    color: COLORS.text,
+  },
+  generateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.xs,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.full,
+    paddingVertical: SPACING.sm,
+  },
+  generateBtnText: { ...FONTS.bodyBold, color: COLORS.white, fontSize: 13 },
+  generatedPlanBox: { marginTop: SPACING.md, gap: SPACING.sm },
+  planDayRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 0.5,
+    borderBottomColor: COLORS.border,
+  },
+  planDayBadge: {
+    ...FONTS.small,
+    width: 34,
+    textAlign: 'center',
+    color: COLORS.primary,
+    fontWeight: '800',
+  },
+  planDayTitle: { ...FONTS.bodyBold, color: COLORS.text, fontSize: 13 },
+  planDayTopics: { ...FONTS.small, color: COLORS.textSecondary, marginTop: 2 },
+  savePlanBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '35',
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+  },
+  savePlanText: { ...FONTS.small, color: COLORS.primary, fontWeight: '700' },
   liveRoadmapCard: {
     marginHorizontal: SPACING.xl,
     marginTop: SPACING.md,
@@ -298,7 +494,7 @@ const styles = StyleSheet.create({
   historyCard: {
     marginHorizontal: SPACING.xl,
     marginTop: SPACING.md,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.card,
     borderRadius: RADIUS.xl,
     padding: SPACING.lg,
     ...SHADOWS.sm,
@@ -324,7 +520,7 @@ const styles = StyleSheet.create({
   },
   timelineLine: { width: 2, flex: 1, marginTop: -2 },
   roadmapContent: {
-    flex: 1, backgroundColor: COLORS.white, borderRadius: RADIUS.xl,
+    flex: 1, backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     padding: SPACING.lg, ...SHADOWS.sm,
   },
   roadmapHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md },

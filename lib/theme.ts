@@ -1,31 +1,31 @@
 export const COLORS = {
-  primary: '#4A6CF7',
-  primaryLight: '#7B93FA',
-  primaryDark: '#3451D1',
-  secondary: '#8B5CF6',
-  secondaryLight: '#A78BFA',
-  accent: '#06B6D4',
-  accentLight: '#67E8F9',
-  background: '#F0F4FF',
-  surface: '#FFFFFF',
-  surfaceAlt: '#F8FAFF',
-  card: '#FFFFFF',
-  text: '#1E293B',
-  textSecondary: '#64748B',
-  textMuted: '#94A3B8',
-  border: '#E2E8F0',
+  primary: '#8B5CF6', // Vibrant Purple
+  primaryLight: '#A78BFA',
+  primaryDark: '#6D28D9',
+  secondary: '#06B6D4', // Neon Cyan
+  secondaryLight: '#67E8F9',
+  accent: '#F43F5E', // Rose
+  accentLight: '#FDA4AF',
+  background: '#0B1121', // Deep dark blue
+  surface: '#151E32', // Elevated dark
+  surfaceAlt: '#1E293B', // Higher elevation
+  card: '#151E32',
+  text: '#F8FAFC', // Near white
+  textSecondary: '#94A3B8', // Slate 400
+  textMuted: '#64748B', // Slate 500
+  border: '#1E293B',
   success: '#10B981',
-  successLight: '#D1FAE5',
+  successLight: 'rgba(16, 185, 129, 0.15)',
   warning: '#F59E0B',
-  warningLight: '#FEF3C7',
+  warningLight: 'rgba(245, 158, 11, 0.15)',
   danger: '#EF4444',
-  dangerLight: '#FEE2E2',
-  gradient1: '#4A6CF7',
-  gradient2: '#8B5CF6',
+  dangerLight: 'rgba(239, 68, 68, 0.15)',
+  gradient1: '#8B5CF6',
+  gradient2: '#3B82F6',
   gradient3: '#06B6D4',
-  white: '#FFFFFF',
-  black: '#0F172A',
-  overlay: 'rgba(15, 23, 42, 0.5)',
+  white: '#FFFFFF', // Keep literal white
+  black: '#000000',
+  overlay: 'rgba(0, 0, 0, 0.7)',
 };
 
 export const SPACING = {
@@ -50,30 +50,30 @@ export const RADIUS = {
 
 export const SHADOWS = {
   sm: {
-    shadowColor: '#4A6CF7',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  md: {
-    shadowColor: '#4A6CF7',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
     elevation: 4,
   },
-  lg: {
-    shadowColor: '#4A6CF7',
+  md: {
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
     elevation: 8,
+  },
+  lg: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 12,
   },
 };
 
 export const FONTS = {
-  h1: { fontSize: 28, fontWeight: '700' as const, color: COLORS.text, letterSpacing: -0.5 },
+  h1: { fontSize: 28, fontWeight: '800' as const, color: COLORS.text, letterSpacing: -0.5 },
   h2: { fontSize: 22, fontWeight: '700' as const, color: COLORS.text, letterSpacing: -0.3 },
   h3: { fontSize: 18, fontWeight: '600' as const, color: COLORS.text },
   body: { fontSize: 15, fontWeight: '400' as const, color: COLORS.text, lineHeight: 22 },

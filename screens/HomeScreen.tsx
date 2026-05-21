@@ -1,68 +1,170 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, RefreshControl, Dimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeInDown, FadeInRight } from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { COLORS, SPACING, RADIUS, SHADOWS, FONTS } from '../lib/theme';
-import { SUBJECTS, AI_SUGGESTIONS, STUDY_TIPS } from '../lib/data';
-import SubjectCard from '../components/SubjectCard';
-import AIBubble from '../components/AIBubble';
+import { SUBJECTS } from '../lib/data';
+import { ChatHistoryItem, getHistoryWithBackend, fetchDashboardStatsWithBackend, DashboardStats } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import {
-  DashboardStats,
-  SyllabusProgressResponse,
-  fetchDashboardStatsWithBackend,
-  fetchSyllabusProgressWithBackend,
-} from '../lib/api';
 
 interface Props {
   navigation: any;
 }
 
+const LOCAL_HISTORY_KEY = '@bcabuddy_local_chat_history';
+const MINUTES_PER_EXCHANGE = 2;
+
+const normalizeText = (value: string) => value.trim().toLowerCase();
+
+const buildSubjectMatchers = () => {
+  return SUBJECTS.map((subject) => ({
+    subject,
+    name: normalizeText(subject.name),
+    topics: subject.topics.map((topic) => normalizeText(topic.name)),
+  }));
+};
+
 export default function HomeScreen({ navigation }: Props) {
   const { sessionMode, profile } = useAuth();
-  const [refreshing, setRefreshing] = useState(false);
-  const [tipIndex, setTipIndex] = useState(0);
+  const [history, setHistory] = useState<ChatHistoryItem[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [syllabusProgress, setSyllabusProgress] = useState<SyllabusProgressResponse | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const subjectMatchers = useMemo(() => buildSubjectMatchers(), []);
+
+  const loadLocalHistory = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(LOCAL_HISTORY_KEY);
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? (parsed as ChatHistoryItem[]) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const loadHistory = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (sessionMode === 'authenticated') {
+        const [rows, stats] = await Promise.all([
+          getHistoryWithBackend(),
+          fetchDashboardStatsWithBackend().catch(() => null)
+        ]);
+        setHistory(rows);
+        setDashboardStats(stats);
+      } else {
+        const localRows = await loadLocalHistory();
+        setHistory(localRows);
+        setDashboardStats(null);
+      }
+    } catch {
+      const localRows = await loadLocalHistory();
+      setHistory(localRows);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [sessionMode]);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => {
-      setTipIndex((prev) => (prev + 1) % STUDY_TIPS.length);
-      setRefreshing(false);
-    }, 1000);
-  }, []);
+    loadHistory();
+  }, [loadHistory]);
 
-  useEffect(() => {
-    const loadDashboardStats = async () => {
-      if (sessionMode !== 'authenticated') {
-        setDashboardStats(null);
-        setSyllabusProgress(null);
-        return;
+  const analytics = useMemo(() => {
+    const rows = history.filter((row) => row.user_message || row.ai_response);
+    const exchanges = rows.filter((row) => row.user_message).length;
+    const totalMinutes = exchanges * MINUTES_PER_EXCHANGE;
+    const totalHours = totalMinutes / 60;
+
+    const subjectCounts = new Map<string, number>();
+    const recentEntries: Array<{ date: Date; subject: string; message: string }> = [];
+
+    const matchSubject = (text: string) => {
+      const normalized = normalizeText(text);
+      for (const matcher of subjectMatchers) {
+        if (normalized.includes(matcher.name)) return matcher.subject.name;
       }
-      try {
-        const [data, syllabus] = await Promise.all([
-          fetchDashboardStatsWithBackend(),
-          fetchSyllabusProgressWithBackend(),
-        ]);
-        setDashboardStats(data);
-        setSyllabusProgress(syllabus);
-      } catch {
-        setDashboardStats(null);
-        setSyllabusProgress(null);
+      for (const matcher of subjectMatchers) {
+        for (const topic of matcher.topics) {
+          if (topic && normalized.includes(topic)) return matcher.subject.name;
+        }
       }
+      return 'General';
     };
 
-    loadDashboardStats();
-  }, [sessionMode]);
+    const getDate = (value?: string) => {
+      if (!value) return null;
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
 
-  const totalProgress = SUBJECTS.reduce((sum, s) => sum + s.progress, 0) / SUBJECTS.length;
-  const backlogCount = SUBJECTS.filter((s) => s.isBacklog).length;
-  const upcomingExams = SUBJECTS.filter((s) => s.examDate).length;
-  const totalSessions = Number(dashboardStats?.total_sessions || 0);
-  const avgQuizScore = Number(dashboardStats?.avg_quiz_score || 0);
-  const syllabusPct = Number(syllabusProgress?.completion_pct || 0);
+    rows.forEach((row) => {
+      const text = `${row.user_message || ''} ${row.ai_response || ''}`.trim();
+      const subject = text ? matchSubject(text) : 'General';
+      const stamp = getDate(row.timestamp) || new Date();
+      recentEntries.push({ date: stamp, subject, message: row.user_message || row.ai_response || '' });
+      subjectCounts.set(subject, (subjectCounts.get(subject) || 0) + 1);
+    });
+
+    const topSubjects = Array.from(subjectCounts.entries())
+      .filter(([name]) => name !== 'General')
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([name, count]) => ({ name, count }));
+
+    const sortedRecent = [...recentEntries].sort((a, b) => b.date.getTime() - a.date.getTime());
+    const lastSubject = sortedRecent.find((entry) => entry.subject !== 'General')?.subject || 'General';
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    const activeDays = new Set(
+      sortedRecent
+        .filter((entry) => entry.date >= sevenDaysAgo)
+        .map((entry) => entry.date.toDateString())
+    ).size;
+
+    if (dashboardStats && sessionMode === 'authenticated') {
+      const act = dashboardStats.study_activity || {};
+      const activeDays = Object.keys(act).length;
+      const totalMinutes = Object.values(act).reduce((sum, mins) => sum + Number(mins), 0);
+      const totalHours = totalMinutes / 60;
+      const recent = (dashboardStats.recent_topics || []).slice(0, 5).map((topic, i) => ({
+        date: new Date(),
+        subject: topic,
+        message: 'Recent review session'
+      }));
+      const lastSubject = dashboardStats.recent_topics?.[0] || 'General';
+      const topSubjects = (dashboardStats.recent_topics || []).slice(0, 4).map((name) => ({ name, count: 5 }));
+
+      return {
+        exchanges,
+        totalMinutes,
+        totalHours,
+        lastSubject,
+        topSubjects,
+        recent,
+        activeDays,
+      };
+    }
+
+    return {
+      exchanges,
+      totalMinutes,
+      totalHours,
+      lastSubject,
+      topSubjects,
+      recent: sortedRecent.slice(0, 5),
+      activeDays,
+    };
+  }, [history, subjectMatchers, dashboardStats, sessionMode]);
 
   const hour = new Date().getHours();
   const greeting =
@@ -83,128 +185,119 @@ export default function HomeScreen({ navigation }: Props) {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
       >
-        {/* Header */}
-        <Animated.View entering={FadeInDown.delay(100).duration(500)} style={styles.header}>
+        <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.header}>
           <View>
             <Text style={styles.greeting}>{greeting}</Text>
             <Text style={styles.name}>{userName}</Text>
           </View>
-          <TouchableOpacity style={styles.notifBtn}>
-            <Ionicons name="notifications-outline" size={24} color={COLORS.text} />
-            <View style={styles.notifDot} />
+          <TouchableOpacity style={styles.notifBtn} onPress={() => navigation.navigate('Notifications')}>
+            <Ionicons name="notifications-outline" size={22} color={COLORS.text} />
           </TouchableOpacity>
         </Animated.View>
 
-        {/* AI Tip Card */}
-        <Animated.View entering={FadeInDown.delay(200).duration(500)} style={styles.tipCard}>
-          <View style={styles.tipHeader}>
-            <View style={styles.tipIconBg}>
-              <Ionicons name="sparkles" size={18} color={COLORS.white} />
+        <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.heroCard}>
+          <Text style={styles.heroLabel}>Prep Snapshot</Text>
+          <Text style={styles.heroTitle}>{loading ? 'Updating...' : `${analytics.totalHours.toFixed(1)} hrs`}</Text>
+          <Text style={styles.heroSub}>{analytics.exchanges} learning exchanges logged</Text>
+          <View style={styles.heroRow}>
+            <View style={styles.heroChip}>
+              <Ionicons name="timer-outline" size={14} color={COLORS.primary} />
+              <Text style={styles.heroChipText}>{analytics.totalMinutes} mins</Text>
             </View>
-            <Text style={styles.tipLabel}>Today's Study Tip</Text>
-          </View>
-          <Text style={styles.tipText}>{STUDY_TIPS[tipIndex]}</Text>
-        </Animated.View>
-
-        {/* Stats Row */}
-        <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: COLORS.primary + '15' }]}>
-              <Ionicons name="pie-chart" size={20} color={COLORS.primary} />
+            <View style={styles.heroChip}>
+              <Ionicons name="book-outline" size={14} color={COLORS.secondary} />
+              <Text style={styles.heroChipText}>Last: {analytics.lastSubject}</Text>
             </View>
-            <Text style={styles.statValue}>
-              {sessionMode === 'authenticated' ? `${Math.round(syllabusPct)}%` : `${Math.round(totalProgress * 100)}%`}
-            </Text>
-            <Text style={styles.statLabel}>Overall</Text>
-          </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: COLORS.success + '15' }]}>
-              <Ionicons name="book" size={20} color={COLORS.success} />
+            <View style={styles.heroChip}>
+              <Ionicons name="flame-outline" size={14} color={COLORS.warning} />
+              <Text style={styles.heroChipText}>{analytics.activeDays} active days</Text>
             </View>
-            <Text style={styles.statValue}>{sessionMode === 'authenticated' ? totalSessions : SUBJECTS.length}</Text>
-            <Text style={styles.statLabel}>{sessionMode === 'authenticated' ? 'Sessions' : 'Subjects'}</Text>
-          </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: COLORS.danger + '15' }]}>
-              <Ionicons name="alert-circle" size={20} color={COLORS.danger} />
-            </View>
-            <Text style={styles.statValue}>{backlogCount}</Text>
-            <Text style={styles.statLabel}>Backlogs</Text>
-          </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statIcon, { backgroundColor: COLORS.warning + '15' }]}>
-              <Ionicons name="calendar" size={20} color={COLORS.warning} />
-            </View>
-            <Text style={styles.statValue}>{sessionMode === 'authenticated' ? `${Math.round(avgQuizScore)}%` : upcomingExams}</Text>
-            <Text style={styles.statLabel}>{sessionMode === 'authenticated' ? 'Quiz Avg' : 'Exams'}</Text>
           </View>
         </Animated.View>
 
-        {/* AI Suggestions */}
-        <Animated.View entering={FadeInDown.delay(400).duration(500)} style={styles.section}>
+        <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.statsRow}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{analytics.exchanges}</Text>
+            <Text style={styles.statLabel}>Exchanges</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{analytics.activeDays}</Text>
+            <Text style={styles.statLabel}>Active Days</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{analytics.lastSubject}</Text>
+            <Text style={styles.statLabel}>Focus</Text>
+          </View>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>🤖 AI Insights</Text>
-            <TouchableOpacity>
-              <Text style={styles.seeAll}>View All</Text>
-            </TouchableOpacity>
-          </View>
-          {AI_SUGGESTIONS.slice(0, 2).map((suggestion) => (
-            <AIBubble key={suggestion.id} message={suggestion.text} type={suggestion.type as any} />
-          ))}
-        </Animated.View>
-
-        {/* Quick Access */}
-        <Animated.View entering={FadeInDown.delay(500).duration(500)} style={styles.section}>
-          <Text style={styles.sectionTitle}>⚡ Quick Access</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickScroll}>
-            {SUBJECTS.slice(0, 4).map((subject) => (
-              <SubjectCard
-                key={subject.id}
-                subject={subject}
-                compact
-                onPress={() => navigation.navigate('SubjectDetail', { subject })}
-              />
-            ))}
-          </ScrollView>
-        </Animated.View>
-
-        {/* Continue Studying */}
-        <Animated.View entering={FadeInDown.delay(600).duration(500)} style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>📚 Continue Studying</Text>
+            <Text style={styles.sectionTitle}>Top Subjects</Text>
             <TouchableOpacity onPress={() => navigation.navigate('RoadmapTab')}>
-              <Text style={styles.seeAll}>See All</Text>
+              <Text style={styles.sectionAction}>Roadmap</Text>
             </TouchableOpacity>
           </View>
-          {SUBJECTS.slice(0, 3).map((subject) => (
-            <SubjectCard
-              key={subject.id}
-              subject={subject}
-              onPress={() => navigation.navigate('SubjectDetail', { subject })}
-            />
-          ))}
+          {analytics.topSubjects.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>No subject signals yet. Start a chat to build analytics.</Text>
+            </View>
+          ) : (
+            analytics.topSubjects.map((item) => (
+              <View key={item.name} style={styles.subjectRow}>
+                <Text style={styles.subjectName}>{item.name}</Text>
+                <View style={styles.subjectBarBg}>
+                  <View style={[styles.subjectBarFill, { width: `${Math.min(100, item.count * 15)}%` }]} />
+                </View>
+              </View>
+            ))
+          )}
         </Animated.View>
 
-        <View style={{ height: 100 }} />
-      </ScrollView>
+        <Animated.View entering={FadeInDown.delay(500).duration(400)} style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Activity</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('AIChat')}>
+              <Text style={styles.sectionAction}>Open Chat</Text>
+            </TouchableOpacity>
+          </View>
+          {analytics.recent.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>No recent conversations yet.</Text>
+            </View>
+          ) : (
+            analytics.recent.map((entry, index) => (
+              <View key={`${entry.subject}-${index}`} style={styles.activityRow}>
+                <View style={styles.activityIcon}>
+                  <Ionicons name="sparkles" size={16} color={COLORS.primary} />
+                </View>
+                <View style={styles.activityInfo}>
+                  <Text style={styles.activityTitle}>{entry.subject}</Text>
+                  <Text style={styles.activitySub}>{entry.date.toLocaleDateString()} • {entry.message.slice(0, 48)}{entry.message.length > 48 ? '...' : ''}</Text>
+                </View>
+              </View>
+            ))
+          )}
+        </Animated.View>
 
-      {/* FAB - AI Chat */}
-      <TouchableOpacity
-        style={styles.fab}
-        activeOpacity={0.85}
-        onPress={() => navigation.navigate('AIChat')}
-      >
-        <Ionicons name="chatbubble-ellipses" size={26} color={COLORS.white} />
-      </TouchableOpacity>
+        <Animated.View entering={FadeInDown.delay(600).duration(400)} style={styles.ctaRow}>
+          <TouchableOpacity style={styles.ctaPrimary} onPress={() => navigation.navigate('AIChat')}>
+            <Ionicons name="chatbubble-ellipses" size={18} color={COLORS.white} />
+            <Text style={styles.ctaPrimaryText}>Ask AI</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.ctaSecondary} onPress={() => navigation.navigate('ExamTab')}>
+            <Ionicons name="school-outline" size={18} color={COLORS.primary} />
+            <Text style={styles.ctaSecondaryText}>Preparation</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        <View style={{ height: 80 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
+  container: { flex: 1, backgroundColor: COLORS.background },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -213,130 +306,129 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.lg,
     paddingBottom: SPACING.md,
   },
-  greeting: {
-    ...FONTS.body,
-    color: COLORS.textSecondary,
-  },
-  name: {
-    ...FONTS.h2,
-    marginTop: 2,
-  },
+  greeting: { ...FONTS.body, color: COLORS.textSecondary },
+  name: { ...FONTS.h2, marginTop: 2 },
   notifBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.white,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.card,
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.sm,
   },
-  notifDot: {
-    position: 'absolute',
-    top: 10,
-    right: 12,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.danger,
-  },
-  tipCard: {
+  heroCard: {
     marginHorizontal: SPACING.xl,
-    marginTop: SPACING.md,
-    backgroundColor: '#1E1B4B',
+    backgroundColor: COLORS.card,
     borderRadius: RADIUS.xl,
     padding: SPACING.lg,
-    ...SHADOWS.lg,
+    ...SHADOWS.md,
   },
-  tipHeader: {
+  heroLabel: { ...FONTS.small, color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 1 },
+  heroTitle: { ...FONTS.h1, marginTop: SPACING.sm },
+  heroSub: { ...FONTS.caption, marginTop: 4 },
+  heroRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginTop: SPACING.md },
+  heroChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SPACING.sm,
+    gap: 6,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.background,
   },
-  tipIconBg: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tipLabel: {
-    ...FONTS.small,
-    color: 'rgba(255,255,255,0.6)',
-    marginLeft: SPACING.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  tipText: {
-    ...FONTS.body,
-    color: COLORS.white,
-    fontSize: 15,
-    lineHeight: 22,
-  },
+  heroChipText: { ...FONTS.small, color: COLORS.textSecondary, fontWeight: '700' },
   statsRow: {
     flexDirection: 'row',
-    paddingHorizontal: SPACING.xl,
-    marginTop: SPACING.xl,
     gap: SPACING.sm,
+    paddingHorizontal: SPACING.xl,
+    marginTop: SPACING.lg,
   },
   statCard: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: COLORS.card,
     borderRadius: RADIUS.lg,
     padding: SPACING.md,
     alignItems: 'center',
     ...SHADOWS.sm,
   },
-  statIcon: {
+  statValue: { ...FONTS.bodyBold, fontSize: 16 },
+  statLabel: { ...FONTS.small, marginTop: 2 },
+  section: { paddingHorizontal: SPACING.xl, marginTop: SPACING.xxl },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.md },
+  sectionTitle: { ...FONTS.h3 },
+  sectionAction: { ...FONTS.small, color: COLORS.primary, fontWeight: '700' },
+  emptyBox: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  emptyText: { ...FONTS.small, color: COLORS.textSecondary },
+  subjectRow: { marginBottom: SPACING.sm },
+  subjectName: { ...FONTS.bodyBold, fontSize: 14, marginBottom: SPACING.xs },
+  subjectBarBg: {
+    height: 6,
+    backgroundColor: COLORS.border,
+    borderRadius: RADIUS.full,
+    overflow: 'hidden',
+  },
+  subjectBarFill: {
+    height: '100%',
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.full,
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.card,
+    padding: SPACING.md,
+    borderRadius: RADIUS.lg,
+    marginBottom: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  activityIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: SPACING.xs,
+    backgroundColor: COLORS.primary + '12',
   },
-  statValue: {
-    ...FONTS.h3,
-    fontSize: 18,
-  },
-  statLabel: {
-    ...FONTS.small,
-    marginTop: 2,
-  },
-  section: {
+  activityInfo: { flex: 1 },
+  activityTitle: { ...FONTS.bodyBold, fontSize: 14 },
+  activitySub: { ...FONTS.caption, marginTop: 2 },
+  ctaRow: {
+    flexDirection: 'row',
+    gap: SPACING.md,
     paddingHorizontal: SPACING.xl,
     marginTop: SPACING.xxl,
   },
-  sectionHeader: {
+  ctaPrimary: {
+    flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: SPACING.lg,
-  },
-  sectionTitle: {
-    ...FONTS.h3,
-    marginBottom: SPACING.md,
-  },
-  seeAll: {
-    ...FONTS.bodyBold,
-    color: COLORS.primary,
-    fontSize: 13,
-    marginBottom: SPACING.md,
-  },
-  quickScroll: {
-    marginLeft: -SPACING.xs,
-  },
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 24,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: COLORS.secondary,
     alignItems: 'center',
     justifyContent: 'center',
-    ...SHADOWS.lg,
-    shadowColor: COLORS.secondary,
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.full,
+    paddingVertical: SPACING.md,
+    ...SHADOWS.sm,
   },
+  ctaPrimaryText: { ...FONTS.bodyBold, color: COLORS.white },
+  ctaSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: RADIUS.full,
+    paddingVertical: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.card,
+  },
+  ctaSecondaryText: { ...FONTS.bodyBold, color: COLORS.primary },
 });

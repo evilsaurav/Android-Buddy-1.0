@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -10,7 +10,6 @@ interface Props {
 }
 
 const FAQS = [
-            { icon: 'construct', label: 'Prod Tools', color: '#14B8A6', onPress: () => navigation.navigate('ProductionTools') },
   { q: 'How does the AI study planner work?', a: 'BCABuddy AI analyzes your current progress, upcoming exams, and study patterns to generate personalized daily study plans. It prioritizes topics based on difficulty, weightage, and your completion rate.' },
   { q: 'Is my data stored online?', a: 'No! All your study data is stored locally on your device using AsyncStorage. We prioritize your privacy. Cloud sync is optional and uses encryption.' },
   { q: 'How do I clear a backlog subject?', a: 'Go to the Backlog Planner tab to see your AI-generated recovery plan. It breaks down the subject into weekly goals with estimated daily study hours.' },
@@ -41,78 +40,84 @@ export default function HelpSupportScreen({ navigation }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {/* Quick Actions */}
-        <Animated.View entering={FadeInDown.delay(50).duration(400)} style={styles.quickActions}>
-          {[
-            { icon: 'chatbubble-ellipses', label: 'Chat with AI', color: COLORS.primary, onPress: () => navigation.navigate('AIChat') },
-            { icon: 'mail', label: 'Email Us', color: COLORS.secondary, onPress: () => Alert.alert('Email', 'support@bcabuddy.app') },
-            { icon: 'bug', label: 'Report Bug', color: COLORS.danger, onPress: () => Alert.alert('Bug Report', 'Please describe the bug in the feedback section below.') },
-          ].map((action, i) => (
-            <TouchableOpacity key={i} style={styles.quickAction} onPress={action.onPress} activeOpacity={0.7}>
-              <View style={[styles.quickIcon, { backgroundColor: action.color + '15' }]}>
-                <Ionicons name={action.icon as any} size={24} color={action.color} />
-              </View>
-              <Text style={styles.quickLabel}>{action.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </Animated.View>
-
-        {/* FAQs */}
-        <Animated.View entering={FadeInDown.delay(150).duration(400)} style={styles.section}>
-          <Text style={styles.sectionTitle}>Frequently Asked Questions</Text>
-          {FAQS.map((faq, i) => (
-            <TouchableOpacity
-              key={i}
-              style={styles.faqCard}
-              onPress={() => setExpandedFaq(expandedFaq === i ? null : i)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.faqHeader}>
-                <Text style={styles.faqQuestion}>{faq.q}</Text>
-                <Ionicons name={expandedFaq === i ? 'chevron-up' : 'chevron-down'} size={18} color={COLORS.primary} />
-              </View>
-              {expandedFaq === i && (
-                <Text style={styles.faqAnswer}>{faq.a}</Text>
-              )}
-            </TouchableOpacity>
-          ))}
-        </Animated.View>
-
-        {/* Feedback */}
-        <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.section}>
-          <Text style={styles.sectionTitle}>Send Feedback</Text>
-          <View style={styles.feedbackCard}>
-            <TextInput
-              style={styles.feedbackInput}
-              placeholder="Tell us what you think, report issues, or suggest features..."
-              placeholderTextColor={COLORS.textMuted}
-              value={feedback}
-              onChangeText={setFeedback}
-              multiline
-              numberOfLines={5}
-              textAlignVertical="top"
-              maxLength={500}
-            />
-            <View style={styles.feedbackFooter}>
-              <Text style={styles.charCount}>{feedback.length}/500</Text>
-              <TouchableOpacity style={styles.submitBtn} onPress={submitFeedback}>
-                <Text style={styles.submitBtnText}>Submit</Text>
-                <Ionicons name="send" size={16} color={COLORS.white} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 80}
+        style={{ flex: 1 }}
+      >
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+          {/* Quick Actions */}
+          <Animated.View entering={FadeInDown.delay(50).duration(400)} style={styles.quickActions}>
+            {[
+              { icon: 'chatbubble-ellipses', label: 'Chat with AI', color: COLORS.primary, onPress: () => navigation.navigate('AIChat') },
+              { icon: 'mail', label: 'Email Us', color: COLORS.secondary, onPress: () => Alert.alert('Email', 'support@bcabuddy.app') },
+              { icon: 'bug', label: 'Report Bug', color: COLORS.danger, onPress: () => Alert.alert('Bug Report', 'Please describe the bug in the feedback section below.') },
+            ].map((action, i) => (
+              <TouchableOpacity key={i} style={styles.quickAction} onPress={action.onPress} activeOpacity={0.7}>
+                <View style={[styles.quickIcon, { backgroundColor: action.color + '15' }]}>
+                  <Ionicons name={action.icon as any} size={24} color={action.color} />
+                </View>
+                <Text style={styles.quickLabel}>{action.label}</Text>
               </TouchableOpacity>
+            ))}
+          </Animated.View>
+
+          {/* FAQs */}
+          <Animated.View entering={FadeInDown.delay(150).duration(400)} style={styles.section}>
+            <Text style={styles.sectionTitle}>Frequently Asked Questions</Text>
+            {FAQS.map((faq, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.faqCard}
+                onPress={() => setExpandedFaq(expandedFaq === i ? null : i)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.faqHeader}>
+                  <Text style={styles.faqQuestion}>{faq.q}</Text>
+                  <Ionicons name={expandedFaq === i ? 'chevron-up' : 'chevron-down'} size={18} color={COLORS.primary} />
+                </View>
+                {expandedFaq === i && (
+                  <Text style={styles.faqAnswer}>{faq.a}</Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </Animated.View>
+
+          {/* Feedback */}
+          <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.section}>
+            <Text style={styles.sectionTitle}>Send Feedback</Text>
+            <View style={styles.feedbackCard}>
+              <TextInput
+                style={styles.feedbackInput}
+                placeholder="Tell us what you think, report issues, or suggest features..."
+                placeholderTextColor={COLORS.textMuted}
+                value={feedback}
+                onChangeText={setFeedback}
+                multiline
+                numberOfLines={5}
+                textAlignVertical="top"
+                maxLength={500}
+              />
+              <View style={styles.feedbackFooter}>
+                <Text style={styles.charCount}>{feedback.length}/500</Text>
+                <TouchableOpacity style={styles.submitBtn} onPress={submitFeedback}>
+                  <Text style={styles.submitBtnText}>Submit</Text>
+                  <Ionicons name="send" size={16} color={COLORS.white} />
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        </Animated.View>
+          </Animated.View>
 
-        {/* App Info */}
-        <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.infoCard}>
-          <Text style={styles.infoTitle}>BCABuddy v1.0.0</Text>
-          <Text style={styles.infoDesc}>Built with React Native + Expo</Text>
-          <Text style={styles.infoDesc}>Designed for Azure App Service deployment</Text>
-        </Animated.View>
+          {/* App Info */}
+          <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.infoCard}>
+            <Text style={styles.infoTitle}>BCABuddy v1.0.0</Text>
+            <Text style={styles.infoDesc}>Built with React Native + Expo</Text>
+            <Text style={styles.infoDesc}>Designed for Azure App Service deployment</Text>
+          </Animated.View>
 
-        <View style={{ height: 40 }} />
-      </ScrollView>
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -120,12 +125,12 @@ export default function HelpSupportScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
+  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center', ...SHADOWS.sm },
   headerTitle: { ...FONTS.h3 },
   content: { paddingHorizontal: SPACING.xl },
   quickActions: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.xl },
   quickAction: {
-    flex: 1, backgroundColor: COLORS.white, borderRadius: RADIUS.xl,
+    flex: 1, backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
     padding: SPACING.lg, alignItems: 'center', ...SHADOWS.sm,
   },
   quickIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.sm },
@@ -133,13 +138,13 @@ const styles = StyleSheet.create({
   section: { marginBottom: SPACING.xl },
   sectionTitle: { ...FONTS.bodyBold, color: COLORS.primary, marginBottom: SPACING.md, fontSize: 13, textTransform: 'uppercase', letterSpacing: 0.5 },
   faqCard: {
-    backgroundColor: COLORS.white, borderRadius: RADIUS.lg, padding: SPACING.lg,
+    backgroundColor: COLORS.card, borderRadius: RADIUS.lg, padding: SPACING.lg,
     marginBottom: SPACING.sm, ...SHADOWS.sm,
   },
   faqHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   faqQuestion: { ...FONTS.bodyBold, fontSize: 14, flex: 1, marginRight: SPACING.sm },
   faqAnswer: { ...FONTS.body, color: COLORS.textSecondary, marginTop: SPACING.md, lineHeight: 22, fontSize: 14 },
-  feedbackCard: { backgroundColor: COLORS.white, borderRadius: RADIUS.xl, padding: SPACING.lg, ...SHADOWS.sm },
+  feedbackCard: { backgroundColor: COLORS.card, borderRadius: RADIUS.xl, padding: SPACING.lg, ...SHADOWS.sm },
   feedbackInput: {
     ...FONTS.body, minHeight: 120, backgroundColor: COLORS.background,
     borderRadius: RADIUS.lg, padding: SPACING.lg, borderWidth: 1, borderColor: COLORS.border,
