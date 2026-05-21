@@ -180,6 +180,8 @@ export default function HomeScreen({ navigation }: Props) {
             ? 'Good Evening'
             : 'Good Night';
   const userName = String(profile?.display_name || profile?.username || '').trim() || 'BCA Student';
+  
+  const backlogs = useMemo(() => SUBJECTS.filter((s) => s.isBacklog), []);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -232,7 +234,30 @@ export default function HomeScreen({ navigation }: Props) {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.section}>
+        {backlogs.length > 0 && (
+          <Animated.View entering={FadeInDown.delay(250).duration(400)} style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>At-Risk Backlogs</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.md, paddingBottom: SPACING.sm }}>
+              {backlogs.map(subject => (
+                <TouchableOpacity 
+                  key={subject.id} 
+                  style={styles.backlogCard}
+                  onPress={() => navigation.navigate('SubjectDetail', { subject })}
+                >
+                  <View style={[styles.backlogIconWrap, { backgroundColor: subject.color + '15', borderColor: subject.color + '30', borderWidth: 1 }]}>
+                    <Ionicons name={subject.icon as any} size={24} color={subject.color} />
+                  </View>
+                  <Text style={styles.backlogSubjectName} numberOfLines={1}>{subject.name}</Text>
+                  <Text style={styles.backlogSubjectSem}>Sem {subject.semester}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Animated.View>
+        )}
+
+        <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Top Subjects</Text>
             <TouchableOpacity onPress={() => navigation.navigate('RoadmapTab')}>
@@ -433,4 +458,24 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
   },
   ctaSecondaryText: { ...FONTS.bodyBold, color: COLORS.primary },
+  backlogCard: {
+    width: 140,
+    padding: SPACING.md,
+    backgroundColor: COLORS.card,
+    borderRadius: RADIUS.lg,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)', // subtle red border for risk
+    ...SHADOWS.sm,
+  },
+  backlogIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SPACING.sm,
+  },
+  backlogSubjectName: { ...FONTS.bodyBold, fontSize: 13, textAlign: 'center', marginBottom: 2 },
+  backlogSubjectSem: { ...FONTS.small, color: COLORS.textSecondary },
 });

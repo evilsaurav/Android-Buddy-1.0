@@ -16,7 +16,7 @@ import SplashScreen from './screens/SplashScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import HomeScreen from './screens/HomeScreen';
 import RoadmapScreen from './screens/RoadmapScreen';
-import BacklogScreen from './screens/BacklogScreen';
+import ArenaScreen from './screens/ArenaScreen';
 import ExamHubScreen from './screens/ExamHubScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import SubjectDetailScreen from './screens/SubjectDetailScreen';
@@ -88,7 +88,7 @@ function TabNavigator() {
           let iconName: any;
           if (route.name === 'HomeTab') iconName = focused ? 'home' : 'home-outline';
           else if (route.name === 'RoadmapTab') iconName = focused ? 'compass' : 'compass-outline';
-          else if (route.name === 'BacklogTab') iconName = focused ? 'layers' : 'layers-outline';
+          else if (route.name === 'ArenaTab') iconName = focused ? 'trophy' : 'trophy-outline';
           else if (route.name === 'ExamTab') iconName = focused ? 'school' : 'school-outline';
           else if (route.name === 'ProfileTab') iconName = focused ? 'person-circle' : 'person-circle-outline';
           return <TabBarAnimatedIcon name={iconName} color={color} focused={focused} />;
@@ -112,7 +112,7 @@ function TabNavigator() {
     >
       <Tab.Screen name="HomeTab" component={HomeScreen} options={{ tabBarLabel: 'Home' }} />
       <Tab.Screen name="RoadmapTab" component={RoadmapScreen} options={{ tabBarLabel: 'Roadmap' }} />
-      <Tab.Screen name="BacklogTab" component={BacklogScreen} options={{ tabBarLabel: 'Backlogs' }} />
+      <Tab.Screen name="ArenaTab" component={ArenaScreen} options={{ tabBarLabel: 'Arena' }} />
       <Tab.Screen name="ExamTab" component={ExamHubScreen} options={{ tabBarLabel: 'Preparation' }} />
       <Tab.Screen name="ProfileTab" component={ProfileScreen} options={{ tabBarLabel: 'Profile' }} />
       </Tab.Navigator>

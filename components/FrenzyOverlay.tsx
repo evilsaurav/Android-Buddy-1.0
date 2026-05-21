@@ -1,21 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, ScrollView } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFrenzy } from '../context/FrenzyContext';
 import { COLORS, FONTS, RADIUS, SPACING } from '../lib/theme';
 
 function getPalette(theme: string | null) {
   const normalized = String(theme || '').toLowerCase();
-  if (normalized.includes('violet') || normalized.includes('purple')) {
-    return { bg: '#2B135D', accent: '#A855F7', text: '#F5F3FF' };
-  }
-  if (normalized.includes('crimson') || normalized.includes('red')) {
-    return { bg: '#3B0F1D', accent: '#EF4444', text: '#FEF2F2' };
-  }
+  // We'll inject a romantic vibe by default unless specifically overridden
   if (normalized.includes('emerald') || normalized.includes('green')) {
     return { bg: '#0E2C1C', accent: '#10B981', text: '#ECFDF5' };
   }
-  return { bg: '#111827', accent: '#F59E0B', text: '#FEF3C7' };
+  if (normalized.includes('violet') || normalized.includes('purple')) {
+    return { bg: '#2B135D', accent: '#D8B4E2', text: '#F5F3FF' };
+  }
+  // Romantic default
+  return { bg: '#4A154B', accent: '#FF758F', text: '#FFE5EC' };
 }
 
 export default function FrenzyOverlay() {
@@ -49,16 +49,34 @@ export default function FrenzyOverlay() {
 
   const palette = getPalette(theme);
 
+  const floatAnim = useSharedValue(0);
+  useEffect(() => {
+    floatAnim.value = withRepeat(
+      withSequence(
+        withTiming(-5, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(5, { duration: 2000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: floatAnim.value }]
+  }));
+
   return (
     <View style={styles.overlay} pointerEvents="auto">
       <SafeAreaView style={[styles.content, { backgroundColor: palette.bg }]} edges={['top', 'bottom']}>
         <View style={styles.messageWrap}>
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <Text style={[styles.title, { color: palette.text }]}>{typed || '...'}</Text>
+            <Animated.Text style={[styles.title, { color: palette.text }, animatedStyle]}>
+              {typed || '...'}
+            </Animated.Text>
           </ScrollView>
         </View>
         <TouchableOpacity style={styles.exitBtn} onPress={clearFrenzy}>
-          <View style={[styles.exitPill, { borderColor: palette.accent }]}> 
+          <View style={[styles.exitPill, { borderColor: palette.accent, backgroundColor: palette.accent + '20' }]}> 
             <Text style={[styles.exitText, { color: palette.text }]}>{resetLabel || 'Exit'}</Text>
           </View>
         </TouchableOpacity>
@@ -88,8 +106,13 @@ const styles = StyleSheet.create({
   },
   title: {
     ...FONTS.h2,
+    fontFamily: 'serif',
+    fontStyle: 'italic',
     textAlign: 'center',
-    lineHeight: 34,
+    lineHeight: 38,
+    textShadowColor: 'rgba(255, 117, 143, 0.4)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 10,
   },
   exitBtn: {
     alignSelf: 'center',

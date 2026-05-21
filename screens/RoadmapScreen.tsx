@@ -512,7 +512,7 @@ const styles = StyleSheet.create({
   historyName: { ...FONTS.small, color: COLORS.text },
   historyMeta: { ...FONTS.small, color: COLORS.textSecondary },
   listContent: { paddingHorizontal: SPACING.xl, paddingTop: SPACING.lg },
-  roadmapCard: { flexDirection: 'row' },
+  roadmapCard: { flexDirection: 'row', marginBottom: SPACING.xl },
   timeline: { alignItems: 'center', marginRight: SPACING.lg, width: 28 },
   timelineDot: {
     width: 28, height: 28, borderRadius: 14,
@@ -521,7 +521,7 @@ const styles = StyleSheet.create({
   timelineLine: { width: 2, flex: 1 },
   roadmapContent: {
     flex: 1, backgroundColor: COLORS.card, borderRadius: RADIUS.xl,
-    padding: SPACING.lg, marginBottom: SPACING.xl, ...SHADOWS.sm,
+    padding: SPACING.lg, ...SHADOWS.sm,
   },
   roadmapHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md },
   roadmapIcon: { width: 40, height: 40, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },

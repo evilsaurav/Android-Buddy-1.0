@@ -1390,8 +1390,6 @@ export async function chatWithBackend(
       ? data.theme_override
       : data?.themeOverride !== undefined
         ? data.themeOverride
-        : null;
-
   return {
     text: String(responseText),
     sessionId: typeof rawSessionId === 'number' ? rawSessionId : undefined,
@@ -1403,4 +1401,34 @@ export async function chatWithBackend(
     frenzyResetLabel: typeof data?.reset_label === 'string' ? data.reset_label : typeof data?.resetLabel === 'string' ? data.resetLabel : undefined,
     backendMode: typeof data?.mode === 'string' ? data.mode : undefined,
   };
+}
+
+export interface LeaderboardUser {
+  username: string;
+  display_name: string;
+  profile_pic_url: string | null;
+  total_xp: number;
+  highest_exam_score: number;
+  current_streak: number;
+}
+
+export interface LeaderboardData {
+  top_xp: LeaderboardUser[];
+  top_scores: LeaderboardUser[];
+  top_streaks: LeaderboardUser[];
+}
+
+export async function fetchLeaderboardWithBackend(): Promise<LeaderboardData> {
+  const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+  if (!token) throw new ApiError('Not logged in', 'AUTH_ERROR');
+
+  const res = await fetch(buildApiUrl('/leaderboard/'), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    await throwApiError(res, 'FETCH_FAILED', 'Could not fetch leaderboard');
+  }
+
+  return res.json();
 }
