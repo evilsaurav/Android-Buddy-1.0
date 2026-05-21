@@ -578,6 +578,11 @@ export default function AIChatScreen({ navigation }: Props) {
         </View>
       </Modal>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+      >
       {/* Messages */}
       <FlatList
         ref={flatListRef}
@@ -611,7 +616,6 @@ export default function AIChatScreen({ navigation }: Props) {
       />
 
       {/* Input */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 80}>
         <View style={styles.toolsWrapper}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolsScroll}>
             {['General', 'PYQs', 'Assignments', 'Notes', 'Viva'].map(tool => (
